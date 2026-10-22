@@ -1,0 +1,2 @@
+{"case_id":"retention","question":"What is the retention period?","relevant_chunk_ids":["doc-1:0"],"expected_answerable":true,"reference_answer":"The retention period is seven years."}
+{"case_id":"unknown","question":"What is the office mascot?","relevant_chunk_ids":[],"expected_answerable":false}

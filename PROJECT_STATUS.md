@@ -128,7 +128,113 @@ Latest verification:
 
 ## Known limitations
 
-- Authentication, persistence, document ingestion, retrieval, generation, verification,
-  agent tools, evaluation, and fine-tuning are not implemented yet.
+- Authentication and full multi-user persistence are not implemented.
 - Readiness currently checks only process-level readiness; dependency checks will be
   added when those dependencies exist.
+
+## Phase 4 — Claim verification and agent workflows
+
+**Status: core complete**
+
+Implemented files:
+
+- `app/verification/models.py`
+- `app/verification/service.py`
+- `app/agents/models.py`
+- `app/agents/workflow.py`
+- `app/agents/langgraph_adapter.py`
+- `app/tools/sql.py`
+- `app/api/routes.py`
+- `tests/test_verification_agents.py`
+
+Implemented behavior:
+
+- Atomic claim extraction and structured claim results.
+- Supported, unsupported, contradicted, and uncertain classifications.
+- Conservative contradiction detection for explicit negation and conflicting numeric facts.
+- Replaceable judge interface with validation of status, confidence, and evidence IDs.
+- Invalid judge responses and provider failures become uncertain, never supported.
+- Typed bounded workflow routes for question answering, document search, SQL reports,
+  email drafts, and verification.
+- Explicit validation, routing, retrieval/generation/verification stages, timeout checks,
+  bounded retry configuration, safe traces, and approval-gated email drafts.
+- Optional LangGraph adapter under the `agents` dependency group.
+- SQL reports are allowlisted, read-only, parameterized where inputs exist, row-bounded,
+  and timeout-bounded.
+- `POST /api/v1/agent` exposes safe traces and approval status.
+
+Verification:
+
+- `py -m pytest`: 24 passed.
+- `py -m ruff check .`: passed.
+- LangGraph and real model-backed judge integrations were not executed because the
+  optional package/service is not installed or configured.
+
+## Phase 5 — Deterministic evaluation foundation
+
+**Status: core complete**
+
+Implemented files:
+
+- `app/evaluation/models.py`
+- `app/evaluation/metrics.py`
+- `app/evaluation/dataset.py`
+- `app/evaluation/storage.py`
+- `data/evaluation/synthetic_v1.jsonl`
+- `tests/test_evaluation.py`
+
+Implemented behavior:
+
+- Versioned synthetic JSONL evaluation fixture.
+- Deterministic Recall@k, Precision@k, binary F1, and route accuracy metrics.
+- SQLite evaluation-run persistence with timestamps, dataset versions, metrics, and errors.
+- Empty/invalid dataset validation.
+
+Verification:
+
+- `py -m pytest`: 26 passed.
+- `py -m ruff check .`: passed.
+
+Limitations:
+
+- RAGAS/DeepEval adapters, evaluation execution orchestration, and dashboard history are
+  not yet implemented.
+- No evaluation score is claimed for production or real company data.
+
+## Next phase
+
+Implement the evaluation runner/API/dashboard integration, then add the optional
+LoRA/QLoRA intent-routing dataset validation, benchmark schemas, and CPU smoke path.
+
+## Phase 6 — Training and benchmark foundation
+
+**Status: core foundation complete**
+
+Implemented files:
+
+- `app/training/dataset.py`
+- `app/training/benchmark.py`
+- `data/training/intent_v1.jsonl`
+- `tests/test_training.py`
+- `pyproject.toml` optional `training` dependency group
+
+Implemented behavior:
+
+- Versioned intent-routing JSONL fixture covering all supported workflow intents.
+- Duplicate and invalid-label detection to reduce train/test leakage risk.
+- Provider-neutral benchmark result schema with accuracy, sample count, latency, and
+  explicit `trained` status.
+- CPU-only benchmark smoke path that does not download models or train at runtime.
+- Optional Transformers, PEFT, TRL, and datasets dependencies are declared but not
+  installed or executed in this environment.
+
+Verification:
+
+- `py -m pytest`: 28 passed.
+- `py -m ruff check .`: passed.
+
+Remaining:
+
+- Training/validation/test splitting, LoRA/QLoRA training script, hardware checks,
+  adapter persistence, and a real base-vs-fine-tuned experiment.
+- Evaluation runner/API/dashboard integration and optional RAGAS/DeepEval adapters.

@@ -32,3 +32,12 @@ class VerificationResult:
     status: ClaimStatus
     method: str
 
+
+@dataclass(frozen=True)
+class JudgeDecision:
+    """Validated decision returned by an optional entailment/judge provider."""
+
+    status: ClaimStatus
+    confidence: float
+    explanation: str
+    evidence_ids: tuple[str, ...]

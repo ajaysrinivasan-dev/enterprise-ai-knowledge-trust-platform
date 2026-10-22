@@ -1,0 +1,5 @@
+{"text":"What is the retention policy?","intent":"question"}
+{"text":"Find the approval section in the handbook.","intent":"search"}
+{"text":"Show document counts by type.","intent":"sql_report"}
+{"text":"Draft an email asking the owner to review this.","intent":"email_draft"}
+{"text":"Is the answer supported by the cited policy?","intent":"verify"}

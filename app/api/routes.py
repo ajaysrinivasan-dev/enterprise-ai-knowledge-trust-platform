@@ -85,6 +85,30 @@ class QuestionResponse(BaseModel):
     reason: str | None = None
 
 
+class AgentRequest(BaseModel):
+    """Validated workflow request."""
+
+    intent: str
+    question: str | None = None
+    answer: str | None = None
+    recipient: str | None = None
+    subject: str | None = None
+    body: str | None = None
+    report: str | None = None
+    evidence: list[EvidenceInput] = Field(default_factory=list)
+    approved: bool = False
+
+
+class AgentResponse(BaseModel):
+    """Safe workflow output with execution stages."""
+
+    intent: str | None
+    result: object | None
+    approval_required: bool
+    trace: list[str]
+    error: str | None
+
+
 class HealthResponse(BaseModel):
     """Public health response without internal paths or secrets."""
 
@@ -196,6 +220,24 @@ def question(request: QuestionRequest) -> QuestionResponse:
             for item in evidence
         ],
         reason=result.reason,
+    )
+
+
+@router.post("/agent", response_model=AgentResponse, tags=["agents"])
+def agent(request: AgentRequest) -> AgentResponse:
+    """Execute a bounded workflow route using the shared retrieval runtime."""
+
+    from app.agents.workflow import AgentWorkflow
+    from app.api.rag_runtime import retrieve as retrieve_evidence
+
+    workflow = AgentWorkflow(retrieve_evidence)
+    result = workflow.run(request.model_dump(exclude_none=True), approved=request.approved)
+    return AgentResponse(
+        intent=result.intent.value if result.intent else None,
+        result=result.result,
+        approval_required=result.approval_required,
+        trace=list(result.trace),
+        error=result.error,
     )
 
 
