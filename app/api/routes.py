@@ -109,6 +109,36 @@ class AgentResponse(BaseModel):
     error: str | None
 
 
+class EvaluationRequest(BaseModel):
+    """Validated offline evaluation request."""
+
+    dataset_id: str = Field(pattern=r"^[a-z0-9_]+$")
+    top_k: int = Field(default=5, ge=1, le=20)
+    min_score: float = Field(default=0.25, ge=0.0, le=1.0)
+
+
+class EvaluationRunResponse(BaseModel):
+    """Public evaluation result including per-example outcomes."""
+
+    run_id: str
+    dataset_version: str
+    created_at: str
+    metrics: dict[str, float | None]
+    errors: list[str]
+    config: dict[str, object]
+    outcomes: list[dict[str, object]]
+    duration_ms: float
+
+
+class EvaluationCompareResponse(BaseModel):
+    """Metric deltas for compatible runs."""
+
+    baseline_run_id: str
+    candidate_run_id: str
+    dataset_version: str
+    deltas: dict[str, float | None]
+
+
 class HealthResponse(BaseModel):
     """Public health response without internal paths or secrets."""
 
@@ -238,6 +268,99 @@ def agent(request: AgentRequest) -> AgentResponse:
         approval_required=result.approval_required,
         trace=list(result.trace),
         error=result.error,
+    )
+
+
+def _evaluation_response(run) -> EvaluationRunResponse:
+    return EvaluationRunResponse(
+        run_id=run.run_id,
+        dataset_version=run.dataset_version,
+        created_at=run.created_at.isoformat(),
+        metrics=run.metrics,
+        errors=list(run.errors),
+        config=run.config.__dict__,
+        outcomes=[outcome.__dict__ for outcome in run.outcomes],
+        duration_ms=run.duration_ms,
+    )
+
+
+@router.post("/evaluations", response_model=EvaluationRunResponse, tags=["evaluation"])
+def run_evaluation(
+    request: EvaluationRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """Run an approved offline evaluation dataset."""
+
+    from app.api.evaluation_runtime import run_evaluation as execute
+    from app.evaluation.models import EvaluationConfig
+
+    try:
+        run = execute(
+            request.dataset_id,
+            settings.evaluation_database,
+            config=EvaluationConfig(top_k=request.top_k, min_score=request.min_score),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _evaluation_response(run)
+
+
+@router.get("/evaluations", response_model=list[EvaluationRunResponse], tags=["evaluation"])
+def list_evaluations(settings: Annotated[Settings, Depends(get_settings)]):
+    """List stored evaluation runs."""
+
+    from app.api.evaluation_runtime import evaluation_store
+
+    store = evaluation_store(settings.evaluation_database)
+    return [_evaluation_response(run) for run in store.list_runs()]
+
+
+@router.get("/evaluations/{run_id}", response_model=EvaluationRunResponse, tags=["evaluation"])
+def get_evaluation(run_id: str, settings: Annotated[Settings, Depends(get_settings)]):
+    """Retrieve one stored evaluation run."""
+
+    from app.api.evaluation_runtime import get_run
+
+    try:
+        return _evaluation_response(get_run(run_id, settings.evaluation_database))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get(
+    "/evaluations/{baseline_id}/compare/{candidate_id}",
+    response_model=EvaluationCompareResponse,
+)
+def compare_evaluations(
+    baseline_id: str,
+    candidate_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """Compare metrics only when dataset and pipeline configuration match."""
+
+    from app.api.evaluation_runtime import get_run
+
+    try:
+        baseline = get_run(baseline_id, settings.evaluation_database)
+        candidate = get_run(candidate_id, settings.evaluation_database)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if baseline.compatible_key != candidate.compatible_key:
+        raise HTTPException(status_code=409, detail="evaluation runs are not compatible")
+    keys = set(baseline.metrics) | set(candidate.metrics)
+    deltas = {
+        key: (
+            candidate.metrics.get(key) - baseline.metrics.get(key)
+            if candidate.metrics.get(key) is not None and baseline.metrics.get(key) is not None
+            else None
+        )
+        for key in keys
+    }
+    return EvaluationCompareResponse(
+        baseline_run_id=baseline.run_id,
+        candidate_run_id=candidate.run_id,
+        dataset_version=baseline.dataset_version,
+        deltas=deltas,
     )
 
 

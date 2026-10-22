@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     vector_backend: str = "memory"
     chroma_path: str = "data/runtime/chroma"
+    evaluation_database: str = "data/runtime/evaluation.db"
 
 
 @lru_cache

@@ -57,6 +57,20 @@ intent-routing benchmark fixture is `data\training\intent_v1.jsonl`. The current
 suite measures deterministic behavior only; it does not claim RAGAS, DeepEval, LoRA, or
 QLoRA results.
 
+Run the approved offline evaluation through the API after starting FastAPI:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/evaluations `
+  -ContentType "application/json" `
+  -Body '{"dataset_id":"synthetic_v1","top_k":5,"min_score":0.25}'
+```
+
+Evaluation runs persist under `data/runtime/evaluation.db` by default. The API accepts
+dataset identifiers, not arbitrary filesystem paths. Results distinguish completed and
+failed examples, record actual errors and latency, and expose only deterministic metrics
+unless an external evaluator is separately integrated and executed.
+
 Set `EAKTP_OLLAMA_MODEL` in `.env` only after confirming the model exists locally with
 `ollama list`. Without it, the API returns explicitly labeled retrieval-only evidence
 and never fabricates an LLM answer.

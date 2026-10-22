@@ -172,7 +172,7 @@ Verification:
 
 ## Phase 5 — Deterministic evaluation foundation
 
-**Status: core complete**
+**Status: complete for offline evaluation; optional judge adapters unexecuted**
 
 Implemented files:
 
@@ -187,24 +187,41 @@ Implemented behavior:
 
 - Versioned synthetic JSONL evaluation fixture.
 - Deterministic Recall@k, Precision@k, binary F1, and route accuracy metrics.
+- Deterministic answer reference exact-match metric explicitly labeled as lexical, plus
+  citation validity and citation relevance metrics.
 - SQLite evaluation-run persistence with timestamps, dataset versions, metrics, and errors.
 - Empty/invalid dataset validation.
+- Reproducible `EvaluationRunner` using the existing retrieval, generation, and
+  verification services.
+- Per-example completed/failed outcomes, error summaries, latency, configuration,
+  completion/failure rates, and aggregate metrics.
+- Approved dataset API endpoints:
+  - `POST /api/v1/evaluations`
+  - `GET /api/v1/evaluations`
+  - `GET /api/v1/evaluations/{run_id}`
+  - `GET /api/v1/evaluations/{baseline_id}/compare/{candidate_id}`
+- Streamlit evaluation section showing actual run metrics, failures, and run history.
+- Optional RAGAS and DeepEval availability checks with explicit missing-dependency errors.
 
 Verification:
 
 - `py -m pytest`: 26 passed.
+- `py -m pytest`: 32 passed after runner/API integration and metric expansion.
 - `py -m ruff check .`: passed.
 
 Limitations:
 
-- RAGAS/DeepEval adapters, evaluation execution orchestration, and dashboard history are
-  not yet implemented.
+- RAGAS/DeepEval execution adapters are not yet implemented; only availability checks
+  exist, and no external evaluator ran.
 - No evaluation score is claimed for production or real company data.
 
 ## Next phase
 
-Implement the evaluation runner/API/dashboard integration, then add the optional
-LoRA/QLoRA intent-routing dataset validation, benchmark schemas, and CPU smoke path.
+The evaluation milestone is complete for the deterministic offline path. The next
+milestone should implement the optional LoRA/QLoRA training workflow, including safe
+train/validation/test splitting, hardware checks, adapter persistence, and measured
+base-vs-fine-tuned comparison. Training foundation schemas already exist but no training
+job has been run.
 
 ## Phase 6 — Training and benchmark foundation
 

@@ -15,6 +15,8 @@ def load_jsonl(path: str | Path) -> list[EvaluationCase]:
             continue
         try:
             payload = json.loads(line)
+            if not str(payload["question"]).strip():
+                raise ValueError("question is empty")
             cases.append(
                 EvaluationCase(
                     case_id=str(payload["case_id"]),

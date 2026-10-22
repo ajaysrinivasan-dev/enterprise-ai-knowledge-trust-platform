@@ -16,7 +16,9 @@ st.caption(
     "are being added incrementally."
 )
 
-overview, documents, assistant = st.tabs(["Overview", "Documents", "Knowledge assistant"])
+overview, documents, assistant, evaluation = st.tabs(
+    ["Overview", "Documents", "Knowledge assistant", "Evaluation"]
+)
 with overview:
     st.metric("Service", "Available")
     st.info(
@@ -51,3 +53,34 @@ with assistant:
                     st.write(citation["excerpt"])
         except (httpx.HTTPError, RuntimeError, ValueError) as exc:
             st.error(f"Question failed: {exc}")
+with evaluation:
+    st.subheader("Offline evaluation")
+    st.caption("Results are actual deterministic pipeline measurements, not mock scores.")
+    if st.button("Run synthetic_v1 evaluation"):
+        try:
+            run = client.run_evaluation()
+            st.success(f"Completed run {run['run_id']}.")
+            st.json(run["metrics"])
+            failures = [item for item in run["outcomes"] if item["status"] != "completed"]
+            if failures:
+                st.warning("Some examples failed or were skipped.")
+                st.dataframe(failures, use_container_width=True)
+        except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+            st.error(f"Evaluation failed: {exc}")
+    try:
+        runs = client.list_evaluations()
+        if runs:
+            st.dataframe(
+                [
+                    {
+                        "run_id": run["run_id"],
+                        "dataset": run["dataset_version"],
+                        "failure_rate": run["metrics"].get("failure_rate"),
+                        "duration_ms": run["duration_ms"],
+                    }
+                    for run in runs
+                ],
+                use_container_width=True,
+            )
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        st.info(f"Start the FastAPI service to view evaluation runs: {exc}")

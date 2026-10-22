@@ -33,3 +33,21 @@ class ApiClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def run_evaluation(self, dataset_id: str = "synthetic_v1") -> dict[str, Any]:
+        """Run an approved offline evaluation dataset."""
+
+        response = httpx.post(
+            f"{self.base_url}/api/v1/evaluations",
+            json={"dataset_id": dataset_id},
+            timeout=60,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def list_evaluations(self) -> list[dict[str, Any]]:
+        """List stored evaluation results."""
+
+        response = httpx.get(f"{self.base_url}/api/v1/evaluations", timeout=10)
+        response.raise_for_status()
+        return response.json()

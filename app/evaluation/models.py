@@ -16,6 +16,31 @@ class EvaluationCase:
 
 
 @dataclass(frozen=True)
+class ExampleOutcome:
+    """Auditable result for one evaluation case."""
+
+    case_id: str
+    status: str
+    retrieved_ids: tuple[str, ...] = ()
+    answer: str | None = None
+    citation_ids: tuple[str, ...] = ()
+    claim_support_rate: float | None = None
+    unsupported_claim_rate: float | None = None
+    latency_ms: float | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class EvaluationConfig:
+    """Validated execution settings recorded with every run."""
+
+    top_k: int = 5
+    min_score: float = 0.25
+    pipeline_id: str = "offline-deterministic"
+    evaluator_id: str = "deterministic"
+
+
+@dataclass(frozen=True)
 class EvaluationRun:
     """Persistable evaluation result metadata."""
 
@@ -24,6 +49,9 @@ class EvaluationRun:
     created_at: datetime
     metrics: dict[str, float | None]
     errors: tuple[str, ...] = ()
+    config: EvaluationConfig = EvaluationConfig()
+    outcomes: tuple[ExampleOutcome, ...] = ()
+    duration_ms: float = 0.0
 
     @classmethod
     def now(
@@ -34,3 +62,9 @@ class EvaluationRun:
         errors: tuple[str, ...] = (),
     ) -> "EvaluationRun":
         return cls(run_id, dataset_version, datetime.now(UTC), metrics, errors)
+
+    @property
+    def compatible_key(self) -> tuple[str, str]:
+        """Runs are comparable only when their dataset and pipeline match."""
+
+        return self.dataset_version, self.config.pipeline_id

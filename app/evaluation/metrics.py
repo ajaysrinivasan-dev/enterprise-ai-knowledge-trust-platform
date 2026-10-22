@@ -38,3 +38,40 @@ def routing_accuracy(predicted: Iterable[str], expected: Iterable[str]) -> float
 
     pairs = list(zip(predicted, expected, strict=True))
     return sum(actual == guess for guess, actual in pairs) / len(pairs) if pairs else 0.0
+
+
+def answer_correctness(answer: str | None, reference: str | None) -> float | None:
+    """Return exact normalized match; None means no reference, not a failed score."""
+
+    if answer is None or reference is None:
+        return None
+    return float(" ".join(answer.casefold().split()) == " ".join(reference.casefold().split()))
+
+
+def mean_or_none(values: Iterable[float | None]) -> float | None:
+    """Average measured values while excluding unavailable metrics."""
+
+    available = [value for value in values if value is not None]
+    return sum(available) / len(available) if available else None
+
+
+def citation_validity(citation_ids: Iterable[str], retrieved_ids: Iterable[str]) -> float | None:
+    """Measure citations that reference actual retrieved chunks."""
+
+    citations = list(citation_ids)
+    if not citations:
+        return None
+    retrieved = set(retrieved_ids)
+    return sum(citation in retrieved for citation in citations) / len(citations)
+
+
+def citation_relevance(
+    citation_ids: Iterable[str], relevant_ids: Iterable[str]
+) -> float | None:
+    """Measure cited chunks that are labeled relevant for the case."""
+
+    citations = list(citation_ids)
+    if not citations:
+        return None
+    relevant = set(relevant_ids)
+    return sum(citation in relevant for citation in citations) / len(citations)
