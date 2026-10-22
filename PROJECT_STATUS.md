@@ -71,8 +71,31 @@ Limitations:
 
 ## Next phase
 
-Phase 3 will add chunking, embeddings, vector storage, retrieval, grounded generation,
-and citation integrity while keeping model services optional in deterministic tests.
+The next implementation slice will add API document lifecycle endpoints, persistent
+metadata, optional embeddings/ChromaDB adapters, and provider-backed grounded generation.
+
+## Current additional checkpoint
+
+Implemented:
+
+- Grounded retrieval-only answer objects with explicit abstention.
+- Citation construction and validation against actual retrieval results.
+- Deterministic claim extraction and supported/unsupported classification.
+- Allowlisted read-only SQLite reporting with bounded rows.
+- Email draft creation that always requires approval and never sends.
+- `POST /api/v1/verify` with structured claim-level responses.
+
+Verification:
+
+- `py -m pytest`: 15 passed.
+- `py -m ruff check .`: passed.
+
+Limitations:
+
+- Verification is a deterministic lexical fallback, not an NLI model or LLM judge.
+- The API does not yet persist uploads or connect retrieval to a document lifecycle.
+- ChromaDB, embeddings, LangGraph, evaluation, training, and the complete Streamlit
+  workflow remain outstanding.
 
 ## Known limitations
 
