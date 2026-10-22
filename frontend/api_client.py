@@ -51,3 +51,35 @@ class ApiClient:
         response = httpx.get(f"{self.base_url}/api/v1/evaluations", timeout=10)
         response.raise_for_status()
         return response.json()
+
+    def training_preflight(self) -> dict[str, Any]:
+        """Retrieve runtime hardware and package availability."""
+
+        response = httpx.get(f"{self.base_url}/api/v1/training/preflight", timeout=10)
+        response.raise_for_status()
+        return response.json()
+
+    def training_datasets(self) -> list[dict[str, Any]]:
+        """List approved training datasets."""
+
+        response = httpx.get(f"{self.base_url}/api/v1/training/datasets", timeout=10)
+        response.raise_for_status()
+        return response.json()
+
+    def start_training(
+        self, dataset_id: str, base_model: str, method: str, confirm: bool
+    ) -> dict[str, Any]:
+        """Start an explicitly confirmed background training job."""
+
+        response = httpx.post(
+            f"{self.base_url}/api/v1/training/runs",
+            json={
+                "dataset_id": dataset_id,
+                "base_model": base_model,
+                "method": method,
+                "confirm": confirm,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()

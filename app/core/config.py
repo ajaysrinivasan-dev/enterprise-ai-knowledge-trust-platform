@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     vector_backend: str = "memory"
     chroma_path: str = "data/runtime/chroma"
     evaluation_database: str = "data/runtime/evaluation.db"
+    training_output_dir: str = "artifacts/training"
 
 
 @lru_cache

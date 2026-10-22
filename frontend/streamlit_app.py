@@ -16,8 +16,8 @@ st.caption(
     "are being added incrementally."
 )
 
-overview, documents, assistant, evaluation = st.tabs(
-    ["Overview", "Documents", "Knowledge assistant", "Evaluation"]
+overview, documents, assistant, evaluation, training = st.tabs(
+    ["Overview", "Documents", "Knowledge assistant", "Evaluation", "Training"]
 )
 with overview:
     st.metric("Service", "Available")
@@ -84,3 +84,21 @@ with evaluation:
             )
     except (httpx.HTTPError, RuntimeError, ValueError) as exc:
         st.info(f"Start the FastAPI service to view evaluation runs: {exc}")
+with training:
+    st.subheader("Optional LoRA / QLoRA training")
+    st.warning(
+        "Training downloads a selected model and can consume GPU memory. "
+        "No training starts without explicit confirmation."
+    )
+    try:
+        preflight = client.training_preflight()
+        st.json(preflight)
+        dataset = st.selectbox("Dataset", ["intent_v1"])
+        method = st.selectbox("Method", ["lora", "qlora"])
+        model = st.text_input("Base model", "sshleifer/tiny-gpt2")
+        confirm = st.checkbox("I explicitly confirm model download/training")
+        if st.button("Start training"):
+            result = client.start_training(dataset, model, method, confirm)
+            st.info(f"Training job: {result['job_id']}")
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        st.info(f"Training services unavailable: {exc}")

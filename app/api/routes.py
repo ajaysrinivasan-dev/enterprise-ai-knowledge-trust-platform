@@ -139,6 +139,42 @@ class EvaluationCompareResponse(BaseModel):
     deltas: dict[str, float | None]
 
 
+class TrainingRequest(BaseModel):
+    """Validated explicit training request."""
+
+    dataset_id: str = Field(pattern=r"^[a-z0-9_]+$")
+    base_model: str = Field(default="sshleifer/tiny-gpt2", min_length=1, max_length=200)
+    method: str = Field(default="lora", pattern=r"^(lora|qlora)$")
+    seed: int = Field(default=42, ge=0, le=2**31 - 1)
+    max_steps: int = Field(default=20, ge=1, le=1000)
+    confirm: bool = False
+
+
+class TrainingJobResponse(BaseModel):
+    """Safe training job status."""
+
+    job_id: str
+    status: str
+    error: str | None = None
+    metadata: dict[str, object] | None = None
+
+
+class BenchmarkRequest(BaseModel):
+    """Validated adapter benchmark request."""
+
+    adapter_id: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9-]+$")
+
+
+class DatasetSummaryResponse(BaseModel):
+    """Approved training dataset summary."""
+
+    dataset_id: str
+    example_count: int
+    split_sizes: dict[str, int]
+    fingerprint: str
+    warnings: list[str]
+
+
 class HealthResponse(BaseModel):
     """Public health response without internal paths or secrets."""
 
@@ -362,6 +398,82 @@ def compare_evaluations(
         dataset_version=baseline.dataset_version,
         deltas=deltas,
     )
+
+
+@router.get("/training/preflight", tags=["training"])
+def training_preflight():
+    """Inspect hardware and optional training dependencies without loading models."""
+
+    from app.api.training_runtime import preflight
+
+    return preflight()
+
+
+@router.get("/training/datasets", response_model=list[DatasetSummaryResponse], tags=["training"])
+def training_datasets():
+    """List approved intent-routing datasets."""
+
+    from app.api.training_runtime import list_datasets
+
+    return list_datasets()
+
+
+@router.post("/training/runs", response_model=TrainingJobResponse, tags=["training"])
+def start_training(request: TrainingRequest):
+    """Start explicitly confirmed background adapter training."""
+
+    if not request.confirm:
+        raise HTTPException(status_code=400, detail="training requires explicit confirmation")
+    from app.api.training_runtime import start_training as launch
+    from app.training.config import TrainingConfig
+
+    try:
+        job_id = launch(
+            request.dataset_id,
+            TrainingConfig(
+                base_model=request.base_model,
+                method=request.method,
+                seed=request.seed,
+                max_steps=request.max_steps,
+                output_dir=get_settings().training_output_dir,
+            ),
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return TrainingJobResponse(job_id=job_id, status="running")
+
+
+@router.get("/training/runs/{job_id}", response_model=TrainingJobResponse, tags=["training"])
+def training_status(job_id: str):
+    """Check a background training job."""
+
+    from app.api.training_runtime import job_status
+
+    try:
+        return TrainingJobResponse.model_validate(job_status(job_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/training/adapters", tags=["training"])
+def training_adapters():
+    """List valid completed local adapters."""
+
+    from app.api.training_runtime import adapters
+
+    return adapters()
+
+
+@router.post("/training/benchmarks", tags=["training"])
+def training_benchmark(request: BenchmarkRequest):
+    """Compare an approved adapter with the deterministic baseline."""
+
+    from app.api.training_runtime import benchmark_adapter
+
+    try:
+        return benchmark_adapter(request.adapter_id)
+    except (RuntimeError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/verify", response_model=VerificationResponse, tags=["verification"])

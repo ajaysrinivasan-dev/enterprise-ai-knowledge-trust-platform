@@ -57,6 +57,41 @@ intent-routing benchmark fixture is `data\training\intent_v1.jsonl`. The current
 suite measures deterministic behavior only; it does not claim RAGAS, DeepEval, LoRA, or
 QLoRA results.
 
+## Optional training workflow
+
+The training subsystem validates `data\training\intent_v1.jsonl`, creates seeded
+partitions, performs runtime hardware checks, and exposes explicit background training
+and adapter benchmark endpoints. It does not download models or start training
+automatically. Install the optional dependencies only when you intend to run training:
+
+```powershell
+python -m pip install -e ".[training]"
+python -c "from app.training.preflight import collect_preflight; import json; print(json.dumps(collect_preflight().as_dict(), indent=2))"
+```
+
+Start training only after confirming the preflight and dataset are suitable:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/training/runs `
+  -ContentType "application/json" `
+  -Body '{"dataset_id":"intent_v1","base_model":"sshleifer/tiny-gpt2","method":"lora","confirm":true}'
+```
+
+QLoRA requires runtime CUDA, compatible bitsandbytes, and sufficient VRAM. The actual
+development preflight currently reports CPU-only PyTorch, no GPU, and missing PEFT and
+bitsandbytes, so no training result is claimed. The five-example synthetic dataset is
+only a smoke-test fixture and cannot support production generalization claims. Check the
+selected Hugging Face model card and dataset terms before downloading or training; the
+default `sshleifer/tiny-gpt2` configuration is intended for a local smoke test only.
+
+Before a confirmed training request is submitted, the API requires non-empty train,
+validation, and test partitions. The bundled five-example fixture is therefore rejected
+for real training because its validation split is empty; it remains available for
+deterministic smoke tests. Failed jobs are not registered as adapters, and incomplete
+run directories are cleaned up. Benchmark comparisons also require matching dataset
+fingerprints for the held-out test split.
+
 Run the approved offline evaluation through the API after starting FastAPI:
 
 ```powershell
