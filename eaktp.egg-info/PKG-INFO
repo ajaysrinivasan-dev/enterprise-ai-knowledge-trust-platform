@@ -1,0 +1,63 @@
+Metadata-Version: 2.4
+Name: eaktp
+Version: 0.1.0
+Summary: Enterprise AI Knowledge & Trust Platform
+Requires-Python: <3.15,>=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi<1,>=0.115
+Requires-Dist: pydantic-settings<3,>=2.6
+Requires-Dist: structlog<26,>=24.4
+Requires-Dist: uvicorn[standard]<1,>=0.32
+Requires-Dist: streamlit<2,>=1.40
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8.3; extra == "dev"
+Requires-Dist: pytest-cov<7,>=6; extra == "dev"
+Requires-Dist: ruff<1,>=0.8; extra == "dev"
+Requires-Dist: httpx<1,>=0.27; extra == "dev"
+
+# Enterprise AI Knowledge & Trust Platform
+
+EAKTP is a local-first, privacy-aware NLP platform for document-grounded answers,
+claim verification, controlled tools, evaluation, and optional model fine-tuning.
+
+## Current status
+
+Phase 1 is implemented: modular project structure, validated environment settings,
+structured logging, FastAPI health/readiness endpoints, a Streamlit shell, and tests.
+See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for verified work and the next phase.
+
+## Quick start (Windows PowerShell)
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+python -m pytest
+python -m ruff check .
+python -m uvicorn app.main:app --reload
+```
+
+In another PowerShell window:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+streamlit run frontend\streamlit_app.py
+```
+
+Open the API documentation at `http://127.0.0.1:8000/docs` and the dashboard at
+`http://localhost:8501`. Python 3.11–3.14 is supported by the project metadata; use
+the interpreter available on the machine, subject to dependency compatibility.
+
+## Security and privacy assumptions
+
+The initial app is for local development and has no user authentication. Do not expose
+it to a company network. Secrets belong in `.env`, which is ignored by Git. Later
+phases must validate uploads, redact PII before indexing, restrict tools, and avoid
+logging raw prompts or documents.
+
+## Planned components
+
+See [docs/architecture.md](./docs/architecture.md) and the attached implementation
+requirements for the phased RAG, verification, agent, evaluation, and training work.
+
