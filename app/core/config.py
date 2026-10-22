@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str | None = None
+    ollama_timeout_seconds: float = Field(default=30.0, gt=0)
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    vector_backend: str = "memory"
+    chroma_path: str = "data/runtime/chroma"
 
 
 @lru_cache
@@ -32,4 +36,3 @@ def get_settings() -> Settings:
     """Return the process-wide immutable-by-convention settings instance."""
 
     return Settings()
-

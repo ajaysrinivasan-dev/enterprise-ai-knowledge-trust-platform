@@ -5,9 +5,11 @@ claim verification, controlled tools, evaluation, and optional model fine-tuning
 
 ## Current status
 
-Phase 1 and the deterministic core of Phase 2 are implemented: modular project
-structure, validated environment settings, structured logging, FastAPI health/readiness
-endpoints, a Streamlit shell, safe upload validation, text parsing, and PII redaction.
+The current implementation includes modular configuration and logging, FastAPI
+health/readiness routes, privacy-aware document upload and indexing, deterministic
+offline embeddings/retrieval, optional Sentence Transformers and ChromaDB adapters,
+grounded retrieval-only answers, optional Ollama generation, citation validation, and a
+Streamlit API client.
 See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for verified work and the next phase.
 
 ## Quick start (Windows PowerShell)
@@ -28,6 +30,17 @@ In another PowerShell window:
 .\.venv\Scripts\Activate.ps1
 streamlit run frontend\streamlit_app.py
 ```
+
+For persistent vector storage and local embedding models, install the optional RAG
+group:
+
+```powershell
+python -m pip install -e ".[rag]"
+```
+
+Set `EAKTP_OLLAMA_MODEL` in `.env` only after confirming the model exists locally with
+`ollama list`. Without it, the API returns explicitly labeled retrieval-only evidence
+and never fabricates an LLM answer.
 
 Open the API documentation at `http://127.0.0.1:8000/docs` and the dashboard at
 `http://localhost:8501`. Python 3.11–3.14 is supported by the project metadata; use

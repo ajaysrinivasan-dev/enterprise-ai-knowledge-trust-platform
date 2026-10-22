@@ -3,10 +3,12 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_settings
+from app.ingestion.parsers import parse_document
+from app.ingestion.validation import validate_upload
 
 router = APIRouter(prefix="/api/v1")
 
@@ -46,6 +48,43 @@ class VerificationResponse(BaseModel):
     claims: list[ClaimResponse]
 
 
+class DocumentResponse(BaseModel):
+    """Safe indexed-document metadata."""
+
+    document_id: str
+    source_name: str
+    pii_counts: dict[str, int]
+    chunk_count: int
+
+
+class RetrievalResponse(BaseModel):
+    """Retrieved evidence with actual chunk identifiers."""
+
+    chunk_id: str
+    document_id: str
+    source_name: str
+    text: str
+    score: float
+
+
+class QuestionRequest(BaseModel):
+    """Question and retrieval controls."""
+
+    question: str = Field(min_length=1, max_length=2000)
+    top_k: int = Field(default=5, ge=1, le=20)
+    min_score: float = Field(default=0.25, ge=0.0, le=1.0)
+
+
+class QuestionResponse(BaseModel):
+    """Grounded answer response."""
+
+    answer: str
+    abstained: bool
+    citations: list[dict[str, str]]
+    evidence: list[RetrievalResponse]
+    reason: str | None = None
+
+
 class HealthResponse(BaseModel):
     """Public health response without internal paths or secrets."""
 
@@ -76,6 +115,87 @@ def readiness(settings: Annotated[Settings, Depends(get_settings)]) -> HealthRes
         service=settings.app_name,
         environment=settings.environment,
         timestamp=datetime.now(UTC),
+    )
+
+
+@router.post("/documents", response_model=DocumentResponse, tags=["documents"])
+async def upload_document(
+    file: Annotated[UploadFile, File(...)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DocumentResponse:
+    """Validate, parse, redact, and index a document without exposing its contents."""
+
+    filename = file.filename or ""
+    content = await file.read()
+    try:
+        extension = validate_upload(filename, content, settings.max_upload_bytes)
+        parsed = parse_document(filename, content, extension)
+        from app.api.rag_runtime import index_document
+
+        metadata = index_document(parsed)
+    except (ValueError, RuntimeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return DocumentResponse.model_validate(metadata)
+
+
+@router.get("/documents", response_model=list[DocumentResponse], tags=["documents"])
+def documents() -> list[DocumentResponse]:
+    """List indexed document metadata."""
+
+    from app.api.rag_runtime import list_documents
+
+    return [DocumentResponse.model_validate(item) for item in list_documents()]
+
+
+@router.post("/retrieve", response_model=list[RetrievalResponse], tags=["retrieval"])
+def retrieve(request: QuestionRequest) -> list[RetrievalResponse]:
+    """Inspect retrieved evidence without generating an answer."""
+
+    from app.api.rag_runtime import retrieve as retrieve_evidence
+
+    return [
+        RetrievalResponse(
+            chunk_id=result.chunk.chunk_id,
+            document_id=result.chunk.document_id,
+            source_name=result.chunk.source_name,
+            text=result.chunk.text,
+            score=result.score,
+        )
+        for result in retrieve_evidence(request.question, request.top_k, request.min_score)
+    ]
+
+
+@router.post("/questions", response_model=QuestionResponse, tags=["generation"])
+def question(request: QuestionRequest) -> QuestionResponse:
+    """Return a grounded retrieval-only answer with validated source citations."""
+
+    from app.api.rag_runtime import answer
+    from app.api.rag_runtime import retrieve as retrieve_evidence
+
+    result = answer(request.question, request.top_k, request.min_score)
+    evidence = retrieve_evidence(request.question, request.top_k, request.min_score)
+    return QuestionResponse(
+        answer=result.answer,
+        abstained=result.abstained,
+        citations=[
+            {
+                "chunk_id": citation.chunk_id,
+                "source_name": citation.source_name,
+                "excerpt": citation.excerpt,
+            }
+            for citation in result.citations
+        ],
+        evidence=[
+            RetrievalResponse(
+                chunk_id=item.chunk.chunk_id,
+                document_id=item.chunk.document_id,
+                source_name=item.chunk.source_name,
+                text=item.chunk.text,
+                score=item.score,
+            )
+            for item in evidence
+        ],
+        reason=result.reason,
     )
 
 

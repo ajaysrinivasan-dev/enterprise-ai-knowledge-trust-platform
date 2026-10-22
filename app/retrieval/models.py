@@ -21,3 +21,13 @@ class RetrievalResult:
     chunk: DocumentChunk
     score: float
 
+
+@dataclass(frozen=True)
+class IndexedDocument:
+    """Sanitized document prepared for indexing."""
+
+    document_id: str
+    source_name: str
+    text: str
+    pii_counts: dict[str, int]
+    chunk_count: int

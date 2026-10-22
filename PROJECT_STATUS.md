@@ -49,15 +49,25 @@ Limitations:
   integration are deferred to later phases.
 - Pattern detection is probabilistic and does not guarantee that all PII is found.
 
-## Phase 3 — Retrieval foundation
+## Phase 3 — Retrieval and grounded generation
 
-**Status: foundation complete**
+**Status: core complete; optional provider verification pending**
 
 Implemented:
 
 - Metadata-preserving word-window chunking with validated overlap and stable chunk IDs.
 - Dependency-free in-memory lexical retriever for local fallback and deterministic tests.
 - Retrieval result objects that always retain the originating document and source name.
+- Deterministic hash embedding provider for offline tests.
+- Optional Sentence Transformer embedding provider.
+- Persistent ChromaDB vector-store adapter with safe upsert and document deletion.
+- In-memory cosine vector store for offline API operation.
+- Optional cross-encoder reranker.
+- Ollama provider with configurable URL/model/timeout and explicit failure handling.
+- Privacy-aware indexing that redacts PII before embedding.
+- Grounded answer orchestration with real chunk citations and threshold-based abstention.
+- API document upload/listing, retrieval inspection, and question endpoints.
+- Streamlit remains a shell; API-backed upload and question controls are next.
 
 Verification:
 
@@ -66,13 +76,13 @@ Verification:
 
 Limitations:
 
-- Sentence-transformer embeddings, ChromaDB persistence, optional reranking, grounded
-  generation, and citation validation are still outstanding.
+- Optional Sentence Transformer, ChromaDB, cross-encoder, and Ollama integrations were
+  implemented but not verified here because model downloads/services are unavailable.
 
 ## Next phase
 
-The next implementation slice will add API document lifecycle endpoints, persistent
-metadata, optional embeddings/ChromaDB adapters, and provider-backed grounded generation.
+The next implementation slice will add Streamlit API integration, document deletion,
+provider configuration/readiness reporting, and then continue with LangGraph workflows.
 
 ## Current additional checkpoint
 
@@ -93,9 +103,28 @@ Verification:
 Limitations:
 
 - Verification is a deterministic lexical fallback, not an NLI model or LLM judge.
-- The API does not yet persist uploads or connect retrieval to a document lifecycle.
-- ChromaDB, embeddings, LangGraph, evaluation, training, and the complete Streamlit
-  workflow remain outstanding.
+- The current API runtime uses process-local metadata and an in-memory vector store by
+  default; ChromaDB persistence is available through the optional RAG dependency group.
+- The current API answer path is retrieval-only unless an Ollama-backed generator is
+  explicitly wired; no model-generated answer is claimed as verified.
+- LangGraph, evaluation, training, and the complete Streamlit workflow remain outstanding.
+
+Additional RAG integration:
+
+- `app/core/config.py` now exposes Ollama, embedding, vector-backend, and Chroma path
+  settings.
+- `app/api/rag_runtime.py` uses Ollama when `EAKTP_OLLAMA_MODEL` is configured and
+  otherwise uses an explicitly labeled retrieval-only generator.
+- `frontend/api_client.py` and `frontend/streamlit_app.py` provide API-backed upload,
+  document listing, and question/citation display.
+- `.env.example` and `README.md` document the optional RAG configuration.
+
+Latest verification:
+
+- `py -m pytest`: 19 passed.
+- `py -m ruff check .`: passed.
+- Real Sentence Transformer, ChromaDB, cross-encoder, and Ollama calls were not run;
+  they require optional packages, model downloads, and/or a running local service.
 
 ## Known limitations
 
