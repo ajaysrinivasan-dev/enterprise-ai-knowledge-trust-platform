@@ -133,19 +133,58 @@ The API supports Bearer-key access control. Configure these variables in your ig
 `.env` file; never commit real secrets. Use separate, randomly generated secrets of at
 least 32 characters for each enabled role:
 
-- `EAKTP_API_KEY`: administrator key. Required in production-like environments (anything
-  other than `development`, `dev`, or `test`). Administrators can use all API routes.
+- `EAKTP_API_KEY`: optional legacy administrator key. Production-like environments
+  (anything other than `development`, `dev`, or `test`) require either this key or an
+  administrator entry in `EAKTP_API_PRINCIPALS_JSON`. Administrators can use all API routes.
 - `EAKTP_READ_API_KEY`: optional reader key. Permits read-only HTTP methods (`GET`, `HEAD`,
   `OPTIONS`) on non-admin-only routes.
 - `EAKTP_WRITE_API_KEY`: optional writer key. Permits normal read/write API routes, but
-  not administrator-only training routes, the `/api/v1/agent` route, or non-GET evaluation
-  requests.
+  not administrator-only training routes, the `/api/v1/agent` route, or any evaluation
+  route. Evaluation runs include per-example outcomes and are administrator-only.
+- `EAKTP_UI_API_KEY`: optional credential the Streamlit frontend should use. If blank, it
+  uses the writer key, then the reader key; it does not implicitly use the administrator key.
+  Set it to an administrator credential only if the dashboard intentionally needs admin access.
 
 When at least one key is configured, requests to `/api/v1/*` must include
 `Authorization: Bearer <key>`, except `/api/v1/health` and `/api/v1/ready`, which remain
 public. A blank role-specific key disables that key; do not reuse the same secret across
-roles. The current implementation identifies roles by shared keys, not individual users,
-and does not provide per-user identity or document-level ownership/isolation.
+roles. These legacy role keys map reader/writer traffic to the shared `default` tenant;
+they do not separate individual users. For tenant isolation, configure
+`EAKTP_API_PRINCIPALS_JSON` with unique credentials mapped to a principal, tenant, and role.
+The principal registry is static configuration, not an identity provider; store real keys
+only in `.env` or a secret manager. When using this registry, set `EAKTP_UI_API_KEY` to the
+intended tenant-scoped frontend credential; a shared Streamlit process otherwise acts as its
+configured service principal, not as each browser user. Tenant IDs come from this server-side
+mapping, never from request bodies or headers. Security logs emit structured events for
+authentication failures, authorization denials, and authenticated API request outcomes;
+they exclude bearer keys and request bodies, but are not a tamper-proof or complete audit trail.
+The API also applies a configurable in-process per-client-IP limit (default 120 requests per
+60 seconds) using `EAKTP_API_RATE_LIMIT_REQUESTS` and
+`EAKTP_API_RATE_LIMIT_WINDOW_SECONDS`. This is a single-process fallback, not a distributed
+limit; a production ingress or API gateway must enforce its own limits.
+
+Example JSON value for `EAKTP_API_PRINCIPALS_JSON` (replace every placeholder with a
+unique random secret of at least 32 characters):
+
+```json
+[
+  {"key":"<unique-secret-for-alice-32-chars-min>","principal_id":"alice","tenant_id":"tenant-a","role":"writer"},
+  {"key":"<unique-secret-for-bob-32-chars-min>","principal_id":"bob","tenant_id":"tenant-b","role":"writer"},
+  {"key":"<unique-admin-secret-32-chars-min>","principal_id":"platform-admin","tenant_id":"admin-home","role":"admin"}
+]
+```
+
+The SQLite, in-memory, and Chroma retrieval paths filter document listing and retrieval by
+tenant. Existing SQLite rows are migrated with a NULL tenant and remain invisible to
+non-admin tenants; administrators can inspect these legacy rows. Admin uploads are placed
+in the configured admin home tenant (or `default` for the legacy admin key). Chroma's
+existing metadata catalog remains process-local. This is a single-process static-principal
+mechanism, not full SSO, account lifecycle, fine-grained document ACLs, or an audit system.
+Document deletion is tenant-scoped and returns the same not-found response for a document
+outside the caller's scope. Upload bodies are read only up to one byte beyond the configured
+maximum before size validation. Principal JSON is validated during settings/application
+startup; malformed, duplicate, short, or ambiguously assigned principals fail without
+including credential values in the error.
 
 Example PowerShell request using the administrator key:
 
@@ -155,17 +194,27 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/documents -Headers $headers
 ```
 
 Keep the service bound to localhost unless you have also configured TLS, network controls,
-key rotation, and appropriate operational monitoring. Uploads are redacted before indexing,
-but pattern-based PII redaction is not guaranteed to catch every sensitive value.
+key rotation, rate limiting, and appropriate operational monitoring. This application does not
+terminate TLS or implement a distributed rate limiter: for a network deployment, terminate TLS
+at a trusted reverse proxy or ingress, enforce request/body/time limits (including chunked
+uploads without `Content-Length`) and per-client or per-credential rate limits there, and
+restrict direct access to the application port. Do not
+trust forwarded client-IP headers unless the proxy is explicitly configured as trusted. Rotate
+keys by generating a replacement secret, updating the server-side secret store, restarting or
+rolling the service, validating the replacement, then revoking the old key; avoid logging or
+committing either key. Store production secrets in a secret manager rather than source control
+or container images. Uploads are redacted before indexing, but pattern-based PII redaction is
+not guaranteed to catch every sensitive value.
 
 ## Current limitations
 
 The default runtime remains local and process-scoped. ChromaDB, Sentence Transformers,
 Ollama, LangGraph, RAGAS/DeepEval, and training libraries are optional and are not
 required for the deterministic test suite. The deterministic verifier is a conservative
-fallback, not proof of factual correctness. Email drafts never send automatically. Role-key
-authentication is available as described above; when no keys are configured in local
-development, API routes remain open for convenient testing.
+fallback, not proof of factual correctness. Email drafts never send automatically. Role-key authentication is available as described above; when no keys are configured in local
+development, API routes remain open for convenient testing. The Streamlit process uses one
+configured service credential for all browser sessions; it does not provide per-browser-user
+authentication or isolation.
 
 See [docs/architecture.md](./docs/architecture.md) and the attached implementation
 requirements for the phased RAG, verification, agent, evaluation, and training work.

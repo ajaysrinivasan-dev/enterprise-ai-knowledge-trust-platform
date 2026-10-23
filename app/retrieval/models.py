@@ -12,6 +12,7 @@ class DocumentChunk:
     source_name: str
     text: str
     page_number: int | None = None
+    tenant_id: str | None = "default"
 
 
 @dataclass(frozen=True)

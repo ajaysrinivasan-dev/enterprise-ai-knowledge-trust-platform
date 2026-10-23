@@ -36,6 +36,7 @@ class ChromaVectorStore:
                     "document_id": chunk.document_id,
                     "source_name": chunk.source_name,
                     "page_number": chunk.page_number or 0,
+                    "tenant_id": chunk.tenant_id or "__legacy_unowned__",
                 }
                 for chunk in chunks
             ],
@@ -52,16 +53,20 @@ class ChromaVectorStore:
         *,
         top_k: int = 5,
         min_score: float = 0.0,
+        tenant_id: str | None = None,
     ) -> list[RetrievalResult]:
         """Query Chroma and convert distances to bounded similarity scores."""
 
         if top_k <= 0:
             raise ValueError("top_k must be positive")
-        response: dict[str, Any] = self._collection.query(
-            query_embeddings=[list(query_embedding)],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+        query_args: dict[str, Any] = {
+            "query_embeddings": [list(query_embedding)],
+            "n_results": top_k,
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if tenant_id is not None and tenant_id != "*":
+            query_args["where"] = {"tenant_id": tenant_id}
+        response: dict[str, Any] = self._collection.query(**query_args)
         documents = (response.get("documents") or [[]])[0]
         metadatas = (response.get("metadatas") or [[]])[0]
         distances = (response.get("distances") or [[]])[0]
@@ -78,6 +83,7 @@ class ChromaVectorStore:
                         source_name=str(metadata["source_name"]),
                         text=str(text),
                         page_number=int(metadata.get("page_number", 0)) or None,
+                        tenant_id=metadata.get("tenant_id"),
                     ),
                     score=score,
                 )

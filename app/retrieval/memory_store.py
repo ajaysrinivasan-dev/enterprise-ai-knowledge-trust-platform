@@ -28,13 +28,20 @@ class InMemoryVectorStore:
         }
 
     def search(
-        self, query_embedding: Sequence[float], *, top_k: int = 5, min_score: float = 0.0
+        self,
+        query_embedding: Sequence[float],
+        *,
+        top_k: int = 5,
+        min_score: float = 0.0,
+        tenant_id: str | None = None,
     ) -> list[RetrievalResult]:
         if top_k <= 0:
             raise ValueError("top_k must be positive")
         query_norm = math.sqrt(sum(value * value for value in query_embedding)) or 1
         results: list[RetrievalResult] = []
         for chunk, embedding in self._records.values():
+            if tenant_id is not None and tenant_id != "*" and chunk.tenant_id != tenant_id:
+                continue
             denominator = query_norm * (math.sqrt(sum(value * value for value in embedding)) or 1)
             score = (
                 sum(left * right for left, right in zip(query_embedding, embedding, strict=True))

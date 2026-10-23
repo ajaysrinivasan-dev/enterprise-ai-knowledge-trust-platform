@@ -2,7 +2,8 @@
 
 import pytest
 from app.api.rag_runtime import _documents
-from app.main import app
+from app.core.config import Settings
+from app.main import create_app
 from app.retrieval.chunking import chunk_text
 from app.retrieval.embeddings import HashEmbeddingProvider
 from app.retrieval.memory_store import InMemoryVectorStore
@@ -16,12 +17,17 @@ def isolate_process_local_rag_runtime(monkeypatch):
     """Keep API tests independent of any local persistent database."""
 
     import app.api.rag_runtime as runtime
+    import app.api.routes as routes
+    import app.main as main
 
     monkeypatch.setattr(
         runtime,
         "_service",
         RetrievalService(HashEmbeddingProvider(), InMemoryVectorStore()),
     )
+    settings = Settings(api_key=None, api_principals_json=None)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    monkeypatch.setattr(routes, "get_settings", lambda: settings)
     _documents.clear()
 
 
@@ -58,7 +64,7 @@ def test_in_memory_vector_store_supports_upsert_and_deletion() -> None:
 
 def test_document_retrieval_and_question_api_use_real_citations() -> None:
     _documents.clear()
-    client = TestClient(app)
+    client = TestClient(create_app())
     upload = client.post(
         "/api/v1/documents",
         files={"file": ("policy.txt", b"Retention policy is seven years.", "text/plain")},
@@ -76,7 +82,7 @@ def test_document_retrieval_and_question_api_use_real_citations() -> None:
 
 def test_question_api_abstains_when_no_evidence_exists() -> None:
     _documents.clear()
-    response = TestClient(app).post(
+    response = TestClient(create_app()).post(
         "/api/v1/questions",
         json={"question": "Unknown topic", "min_score": 0.9},
     )
@@ -93,11 +99,11 @@ def test_question_api_uses_one_retrieval_set_for_answer_and_evidence(monkeypatch
     ]
     calls = []
 
-    def fake_retrieve(question, top_k, min_score):
-        calls.append((question, top_k, min_score))
+    def fake_retrieve(question, top_k, min_score, **kwargs):
+        calls.append((question, top_k, min_score, kwargs.get("tenant_id")))
         return evidence
 
-    def fake_answer(question, top_k, min_score, *, evidence):
+    def fake_answer(question, top_k, min_score, *, evidence, **kwargs):
         assert evidence is evidence_set
         return type(
             "Answer",
@@ -115,7 +121,7 @@ def test_question_api_uses_one_retrieval_set_for_answer_and_evidence(monkeypatch
 
     monkeypatch.setattr(runtime, "retrieve", fake_retrieve)
     monkeypatch.setattr(runtime, "answer", fake_answer)
-    response = TestClient(app).post(
+    response = TestClient(create_app()).post(
         "/api/v1/questions",
         json={"question": "What is the retention policy?", "min_score": 0},
     )
@@ -128,9 +134,7 @@ def test_retrieval_service_uses_explicit_hash_and_memory_settings() -> None:
     from app.api.rag_runtime import build_retrieval_service
     from app.core.config import Settings
 
-    service = build_retrieval_service(
-        Settings(embedding_backend="hash", vector_backend="memory")
-    )
+    service = build_retrieval_service(Settings(embedding_backend="hash", vector_backend="memory"))
 
     assert isinstance(service.embeddings, HashEmbeddingProvider)
     assert isinstance(service.store, InMemoryVectorStore)
@@ -169,7 +173,6 @@ def test_retrieval_service_wires_configured_optional_providers(monkeypatch) -> N
     }
 
 
-
 def test_sqlite_retrieval_and_document_listing_survive_store_recreation(
     tmp_path, monkeypatch
 ) -> None:
@@ -205,3 +208,53 @@ def test_sqlite_retrieval_and_document_listing_survive_store_recreation(
 
     restarted_service.store.delete_document(str(indexed["document_id"]))
     assert list_documents() == []
+
+
+def test_indexing_cleans_up_chunks_when_metadata_persistence_fails(monkeypatch) -> None:
+    import app.api.rag_runtime as runtime
+    from app.ingestion.models import ParsedDocument
+
+    class FailingMetadataStore(InMemoryVectorStore):
+        def upsert_document_metadata(self, metadata):
+            raise TypeError("simulated metadata adapter failure")
+
+    store = FailingMetadataStore()
+    monkeypatch.setattr(runtime, "_service", RetrievalService(HashEmbeddingProvider(), store))
+    with pytest.raises(TypeError, match="simulated metadata adapter failure"):
+        runtime.index_document(
+            ParsedDocument("failure.txt", ".txt", "safe content"), tenant_id="tenant-a"
+        )
+
+    assert store.search([1.0] * 64, tenant_id="tenant-a") == []
+    assert runtime.list_documents(tenant_id="tenant-a") == []
+
+
+def test_chroma_adapter_applies_tenant_filter_and_admin_all_tenant_scope(monkeypatch) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    from app.retrieval.vector_store import ChromaVectorStore
+
+    class FakeCollection:
+        last_query = None
+
+        def query(self, **kwargs):
+            self.last_query = kwargs
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+    collection = FakeCollection()
+
+    class FakeClient:
+        def get_or_create_collection(self, name):
+            assert name == "eaktp_documents"
+            return collection
+
+    monkeypatch.setitem(
+        sys.modules, "chromadb", SimpleNamespace(PersistentClient=lambda path: FakeClient())
+    )
+    store = ChromaVectorStore("isolated-test-path")
+    assert store.search([1.0], tenant_id="tenant-a") == []
+    assert collection.last_query["where"] == {"tenant_id": "tenant-a"}
+
+    assert store.search([1.0], tenant_id="*") == []
+    assert "where" not in collection.last_query

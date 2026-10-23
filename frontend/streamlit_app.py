@@ -7,7 +7,8 @@ from app.core.config import get_settings
 from frontend.api_client import ApiClient
 
 settings = get_settings()
-client = ApiClient()
+configured_key = settings.ui_api_key or settings.write_api_key or settings.read_api_key
+client = ApiClient(api_key=configured_key.get_secret_value() if configured_key else None)
 
 st.set_page_config(page_title=settings.app_name, page_icon="🛡️", layout="wide")
 st.title(settings.app_name)
@@ -22,8 +23,7 @@ overview, documents, assistant, evaluation, training = st.tabs(
 with overview:
     st.metric("Service", "Available")
     st.info(
-        "Phase 1 foundation is running. Connect the API with the documented "
-        "PowerShell command."
+        "Phase 1 foundation is running. Connect the API with the documented PowerShell command."
     )
 with documents:
     st.subheader("Document management")

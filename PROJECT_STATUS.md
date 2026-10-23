@@ -500,3 +500,122 @@ Implemented:
 Security boundary:
 
 - This is shared-key authentication only; it does not provide individual identities, roles, per-document access control, rate limiting, key rotation, or TLS. Keep the server bound to localhost until deployment controls are configured.
+
+
+## Phase 12 — Tenant-aware document isolation
+
+**Status: implemented and offline-tested; static principal configuration only**
+
+Implemented:
+
+- Added optional `EAKTP_API_PRINCIPALS_JSON` server-side mapping from unique bearer keys to `principal_id`, `tenant_id`, and role. Principal keys must be at least 32 characters; duplicate keys and non-admin `*` tenant scopes are rejected. Request-supplied tenant IDs are not used for authorization.
+- Preserved the existing role-key variables for compatibility. Legacy reader/writer keys share the `default` tenant; the legacy administrator key has all-tenant read access and writes to `default`.
+- Added tenant ownership metadata to chunks and indexed-document records, and tenant-scoped listing/search for SQLite, memory, and Chroma retrieval backends.
+- Added an SQLite schema migration that leaves existing records with NULL ownership. Those records are hidden from tenant-scoped reads and remain accessible only through the administrator all-tenant scope.
+- Scoped document upload, listing, retrieval inspection, question evidence, and citations using the authenticated request context.
+- Updated the Streamlit API client to attach configured bearer credentials; it uses `EAKTP_UI_API_KEY` when supplied, otherwise the writer then reader key, and does not implicitly elevate to the administrator key. Documented principal-registry setup and limitations.
+- Added cross-tenant API tests, an SQLite legacy-schema migration test, and a SQLite tenant-filtering test.
+
+Verification:
+
+- `py -m pytest`: 70 passed, with two existing Starlette/AnyIO deprecation warnings.
+- `py -m ruff check .`: passed.
+- `py -m compileall -q app tests frontend`: passed.
+
+Limitations and deployment notes:
+
+- The principal registry is static configuration, not SSO or a full identity provider. It does not provide account lifecycle, fine-grained per-document ACLs, key rotation, rate limiting, or a complete audit trail.
+- Legacy shared reader/writer keys intentionally share one `default` tenant and therefore do not isolate users from one another; use distinct entries in `EAKTP_API_PRINCIPALS_JSON` for tenant isolation.
+- Admin uploads use the configured admin principal's home tenant, or `default` for the legacy admin key; admin reads can inspect all tenants and legacy unowned rows.
+- Chroma's document metadata catalog remains process-local even though tenant metadata is attached to stored chunks. SQLite remains the recommended default for restart-safe catalog persistence.
+- Optional Chroma behavior was implemented but not exercised against a live ChromaDB installation in this verification.
+
+## Phase 13 — Security hardening and enterprise-readiness audit
+
+**Status: implemented and offline-verified**
+
+Fixed and verified:
+
+- Evaluation listing, retrieval, comparison, and execution are administrator-only because
+  persisted runs include per-example outcomes and are not tenant-owned.
+- Principal registry JSON is validated while constructing settings, including valid JSON,
+  required fields, minimum key length, unique credentials and principal IDs, valid roles,
+  and safe tenant scope rules. Error messages do not include credential values.
+- Document deletion is exposed through a tenant-scoped API route. Cross-tenant or unknown
+  document IDs return the same `404` response, while administrators retain explicit
+  all-tenant deletion access.
+- Upload reads are bounded to the configured maximum plus one byte before validation.
+  Failed metadata persistence removes already-indexed chunks to avoid partial documents.
+- Regression coverage includes evaluation authorization, startup configuration validation,
+  cross-tenant deletion, oversized uploads, tenant retrieval/listing, and SQLite legacy
+  ownership migration.
+
+Verification:
+
+- Focused security, tenant, lifecycle, and evaluation tests: 23 passed.
+- Full-suite, Ruff, and compile results are recorded after the final validation run below.
+
+Known limitations:
+
+- ChromaDB was not installed or exercised live; its tenant filtering remains covered by
+  adapter-level code and existing tests only where dependencies are available.
+- Streamlit uses its configured service credential for every browser session and does not
+  implement per-browser identity or isolation.
+- Static bearer credentials still have no rotation, rate limiting, SSO, or complete audit
+  trail.
+
+## Phase 14 — Follow-up security audit and integration hardening
+
+**Status: local hardening implemented; live ChromaDB verification blocked by missing build tooling**
+
+Follow-up findings fixed:
+
+- Production settings now accept a validated administrator principal from
+  EAKTP_API_PRINCIPALS_JSON without requiring a duplicate legacy EAKTP_API_KEY.
+  Effective principal-ID collisions with implicit legacy identities are rejected.
+- Fixed the in-memory retrieval backend's administrator wildcard handling. An admin
+  principal with tenant_id="*" can now retrieve across tenants, matching SQLite and
+  Chroma adapter behavior. Added a regression assertion.
+- Added structured security events for failed authentication, denied authorization,
+  rate-limit events, oversized declared uploads, and authenticated request outcomes.
+  Logs do not include bearer credentials or request bodies.
+- Added a configurable in-process per-client-IP API rate limiter
+  (EAKTP_API_RATE_LIMIT_REQUESTS, default 120;
+  EAKTP_API_RATE_LIMIT_WINDOW_SECONDS, default 60) with HTTP 429 and Retry-After.
+  This is a fallback only; distributed enforcement belongs at the ingress/API gateway.
+- Added an early Content-Length guard for clearly oversized multipart upload requests
+  before Starlette's multipart parser runs. The route still reads at most the configured
+  file limit plus one byte. Chunked requests without Content-Length must be capped at
+  the reverse proxy/ingress.
+- Broadened indexing cleanup so indexed chunks are removed if metadata persistence raises
+  any ordinary exception, and added a regression test.
+- Documented key-rotation steps, secret-manager use, TLS termination, ingress body/time
+  limits, distributed rate limiting, structured-log limitations, and Streamlit's shared
+  service identity boundary.
+
+Verification:
+
+- py -m pytest -q: **78 passed**, two existing Starlette/AnyIO deprecation warnings.
+- py -m ruff check .: passed.
+- py -m compileall -q app tests frontend: passed.
+- git diff --check: passed (only Git LF/CRLF working-copy warnings).
+- Added adapter-level Chroma tenant-filter regression coverage using a fake collection.
+- Attempted isolated ChromaDB installation under Python 3.14 and 3.12. Both attempts stopped
+  because chroma-hnswlib requires Microsoft Visual C++ 14.0 or newer to build on this
+  machine. No project dependency files were changed by those attempts, and no live Chroma
+  database test was possible.
+
+Remaining risks:
+
+- Live Chroma persistence, filtering, and deletion are still not verified against the actual
+  ChromaDB runtime. Install Microsoft C++ Build Tools or use an environment with a compatible
+  prebuilt chroma-hnswlib wheel, then rerun isolated integration tests.
+- The in-process limiter is per-process and keyed by the ASGI client address; it is not a
+  substitute for a distributed ingress/API-gateway limiter, especially behind a proxy.
+- TLS termination, production secret-manager integration, alerting, durable/tamper-resistant
+  audit storage, SSO, and per-browser Streamlit identity require deployment/infrastructure
+  work. Keep the API bound to localhost until those controls are configured.
+- Pattern-based PII detection remains best-effort.
+
+No commits, pushes, deployments, production data changes, or external service calls were made.
+Existing worktree changes were preserved.

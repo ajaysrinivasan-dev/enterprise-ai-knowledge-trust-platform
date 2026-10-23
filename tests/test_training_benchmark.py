@@ -2,7 +2,8 @@
 
 import pytest
 from app.api.evaluation_runtime import approved_dataset_path
-from app.main import app
+from app.core.config import Settings
+from app.main import create_app
 from app.training.benchmark import BenchmarkResult, benchmark_comparison, benchmark_router
 from app.training.dataset import (
     IntentSplits,
@@ -12,10 +13,21 @@ from app.training.dataset import (
     validate_training_ready,
 )
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 
-def test_benchmark_rejects_unknown_adapter_without_model_loading() -> None:
-    response = TestClient(app).post(
+def _admin_client(monkeypatch) -> TestClient:
+    import app.main as main
+
+    settings = Settings(api_key=SecretStr("benchmark-admin-" + "a" * 32), api_principals_json=None)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    return TestClient(
+        create_app(), headers={"Authorization": "Bearer benchmark-admin-" + "a" * 32}
+    )
+
+
+def test_benchmark_rejects_unknown_adapter_without_model_loading(monkeypatch) -> None:
+    response = _admin_client(monkeypatch).post(
         "/api/v1/training/benchmarks",
         json={"adapter_id": "not-a-real-run"},
     )

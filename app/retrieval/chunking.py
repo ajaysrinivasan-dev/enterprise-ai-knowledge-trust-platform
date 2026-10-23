@@ -12,6 +12,7 @@ def chunk_text(
     source_name: str,
     chunk_size: int = 120,
     overlap: int = 20,
+    tenant_id: str | None = "default",
 ) -> list[DocumentChunk]:
     """Split text into bounded word windows while preserving source metadata."""
 
@@ -30,9 +31,9 @@ def chunk_text(
                 document_id=document_id,
                 source_name=source_name,
                 text=" ".join(window),
+                tenant_id=tenant_id,
             )
         )
         if start + chunk_size >= len(words):
             break
     return chunks
-

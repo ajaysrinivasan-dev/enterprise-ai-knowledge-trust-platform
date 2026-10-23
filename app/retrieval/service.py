@@ -14,7 +14,9 @@ class RetrievalService:
         self.embeddings = embeddings
         self.store = store
 
-    def index(self, document: ParsedDocument, document_id: str) -> IndexedDocument:
+    def index(
+        self, document: ParsedDocument, document_id: str, tenant_id: str | None = "default"
+    ) -> IndexedDocument:
         """Index sanitized content and return only safe metadata."""
 
         redaction = redact_pii(document.text)
@@ -22,6 +24,7 @@ class RetrievalService:
             redaction.text,
             document_id=document_id,
             source_name=document.filename,
+            tenant_id=tenant_id,
         )
         vectors = self.embeddings.embed([chunk.text for chunk in chunks])
         self.store.upsert(chunks, vectors)
@@ -34,9 +37,14 @@ class RetrievalService:
         )
 
     def retrieve(
-        self, question: str, *, top_k: int = 5, min_score: float = 0.0
+        self,
+        question: str,
+        *,
+        top_k: int = 5,
+        min_score: float = 0.0,
+        tenant_id: str | None = "default",
     ) -> list[RetrievalResult]:
         """Embed a query and retrieve evidence from the configured store."""
 
         vectors = self.embeddings.embed([question])
-        return self.store.search(vectors[0], top_k=top_k, min_score=min_score)
+        return self.store.search(vectors[0], top_k=top_k, min_score=min_score, tenant_id=tenant_id)

@@ -8,11 +8,12 @@ import httpx
 class ApiClient:
     """Call the local FastAPI backend with explicit, bounded timeouts."""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8000") -> None:
+    def __init__(self, base_url: str = "http://127.0.0.1:8000", api_key: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     def list_documents(self) -> list[dict[str, Any]]:
-        response = httpx.get(f"{self.base_url}/api/v1/documents", timeout=10)
+        response = httpx.get(f"{self.base_url}/api/v1/documents", headers=self.headers, timeout=10)
         response.raise_for_status()
         return response.json()
 
@@ -20,6 +21,7 @@ class ApiClient:
         response = httpx.post(
             f"{self.base_url}/api/v1/documents",
             files={"file": (filename, content)},
+            headers=self.headers,
             timeout=30,
         )
         response.raise_for_status()
@@ -29,6 +31,7 @@ class ApiClient:
         response = httpx.post(
             f"{self.base_url}/api/v1/questions",
             json={"question": question},
+            headers=self.headers,
             timeout=60,
         )
         response.raise_for_status()
@@ -40,6 +43,7 @@ class ApiClient:
         response = httpx.post(
             f"{self.base_url}/api/v1/evaluations",
             json={"dataset_id": dataset_id},
+            headers=self.headers,
             timeout=60,
         )
         response.raise_for_status()
@@ -48,21 +52,27 @@ class ApiClient:
     def list_evaluations(self) -> list[dict[str, Any]]:
         """List stored evaluation results."""
 
-        response = httpx.get(f"{self.base_url}/api/v1/evaluations", timeout=10)
+        response = httpx.get(
+            f"{self.base_url}/api/v1/evaluations", headers=self.headers, timeout=10
+        )
         response.raise_for_status()
         return response.json()
 
     def training_preflight(self) -> dict[str, Any]:
         """Retrieve runtime hardware and package availability."""
 
-        response = httpx.get(f"{self.base_url}/api/v1/training/preflight", timeout=10)
+        response = httpx.get(
+            f"{self.base_url}/api/v1/training/preflight", headers=self.headers, timeout=10
+        )
         response.raise_for_status()
         return response.json()
 
     def training_datasets(self) -> list[dict[str, Any]]:
         """List approved training datasets."""
 
-        response = httpx.get(f"{self.base_url}/api/v1/training/datasets", timeout=10)
+        response = httpx.get(
+            f"{self.base_url}/api/v1/training/datasets", headers=self.headers, timeout=10
+        )
         response.raise_for_status()
         return response.json()
 
@@ -79,6 +89,7 @@ class ApiClient:
                 "method": method,
                 "confirm": confirm,
             },
+            headers=self.headers,
             timeout=10,
         )
         response.raise_for_status()

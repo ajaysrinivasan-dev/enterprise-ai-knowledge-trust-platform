@@ -2,11 +2,13 @@
 
 from app.agents.models import Intent
 from app.agents.workflow import AgentWorkflow
-from app.main import app
+from app.core.config import Settings
+from app.main import create_app
 from app.retrieval.models import DocumentChunk, RetrievalResult
 from app.verification.models import ClaimStatus, JudgeDecision
 from app.verification.service import verify_answer, verify_with_judge
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 
 def evidence(text: str, chunk_id: str = "d:0") -> list[RetrievalResult]:
@@ -75,8 +77,14 @@ def test_workflow_rejects_unsupported_route_and_prevents_send() -> None:
     assert send_attempt.error == "email sending is not supported; approval cannot send email"
 
 
-def test_agent_api_returns_trace_and_approval_state() -> None:
-    response = TestClient(app).post(
+def test_agent_api_returns_trace_and_approval_state(monkeypatch) -> None:
+    import app.main as main
+
+    settings = Settings(api_key=SecretStr("agent-admin-" + "a" * 32), api_principals_json=None)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    response = TestClient(
+        create_app(), headers={"Authorization": "Bearer agent-admin-" + "a" * 32}
+    ).post(
         "/api/v1/agent",
         json={
             "intent": "email_draft",

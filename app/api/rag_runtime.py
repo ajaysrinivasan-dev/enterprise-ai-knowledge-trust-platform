@@ -42,37 +42,47 @@ _service = build_retrieval_service()
 _documents: dict[str, dict[str, object]] = {}
 
 
-def index_document(document: ParsedDocument) -> dict[str, object]:
+def index_document(document: ParsedDocument, tenant_id: str = "default") -> dict[str, object]:
     """Index one sanitized document and retain safe metadata."""
 
     document_id = str(uuid4())
-    indexed = _service.index(document, document_id)
+    indexed = _service.index(document, document_id, tenant_id=tenant_id)
     metadata: dict[str, object] = {
         "document_id": indexed.document_id,
         "source_name": indexed.source_name,
         "pii_counts": indexed.pii_counts,
         "chunk_count": indexed.chunk_count,
+        "tenant_id": tenant_id,
     }
     persist_metadata = getattr(_service.store, "upsert_document_metadata", None)
-    if callable(persist_metadata):
-        persist_metadata(metadata)
+    try:
+        if callable(persist_metadata):
+            persist_metadata(metadata)
+    except Exception:
+        delete_document = getattr(_service.store, "delete_document", None)
+        if callable(delete_document):
+            delete_document(document_id)
+        raise
     _documents[document_id] = metadata
     return metadata
 
 
-def list_documents() -> list[dict[str, object]]:
-    """List safe metadata from durable storage when the configured backend supports it."""
+def list_documents(tenant_id: str | None = "default") -> list[dict[str, object]]:
+    """List documents within a tenant; None or '*' is reserved for privileged callers."""
 
     persistent_listing = getattr(_service.store, "list_documents", None)
     if callable(persistent_listing):
-        return persistent_listing()
-    return list(_documents.values())
+        return persistent_listing(tenant_id=tenant_id)
+    records = list(_documents.values())
+    if tenant_id is None or tenant_id == "*":
+        return records
+    return [item for item in records if item.get("tenant_id") == tenant_id]
 
 
-def retrieve(question: str, top_k: int, min_score: float):
-    """Retrieve evidence from the process-local index."""
+def retrieve(question: str, top_k: int, min_score: float, tenant_id: str | None = "default"):
+    """Retrieve evidence only from the caller's tenant, or all tenants for privileged callers."""
 
-    return _service.retrieve(question, top_k=top_k, min_score=min_score)
+    return _service.retrieve(question, top_k=top_k, min_score=min_score, tenant_id=tenant_id)
 
 
 def answer(
@@ -81,10 +91,13 @@ def answer(
     min_score: float,
     *,
     evidence=None,
+    tenant_id: str | None = "default",
 ) -> GroundedAnswer:
     """Return retrieval-only grounded evidence until an LLM is configured."""
 
-    results = retrieve(question, top_k, min_score) if evidence is None else evidence
+    results = (
+        retrieve(question, top_k, min_score, tenant_id=tenant_id) if evidence is None else evidence
+    )
     settings = get_settings()
     if settings.ollama_model:
         generator = OllamaProvider(
@@ -93,6 +106,7 @@ def answer(
             settings.ollama_timeout_seconds,
         ).generate
     else:
+
         def generator(_question: str, evidence: list[str]) -> str:
             return "Relevant evidence:\n" + "\n".join(f"- {item}" for item in evidence)
 

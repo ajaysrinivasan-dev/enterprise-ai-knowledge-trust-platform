@@ -1,11 +1,19 @@
 """Verification API tests."""
 
-from app.main import app
+from app.core.config import Settings
+from app.main import create_app
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 
-def test_verify_api_returns_structured_claim_results() -> None:
-    response = TestClient(app).post(
+def test_verify_api_returns_structured_claim_results(monkeypatch) -> None:
+    import app.main as main
+
+    settings = Settings(api_key=SecretStr("verify-admin-" + "a" * 32), api_principals_json=None)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    response = TestClient(
+        create_app(), headers={"Authorization": "Bearer verify-admin-" + "a" * 32}
+    ).post(
         "/api/v1/verify",
         json={
             "answer": "The retention policy is seven years.",

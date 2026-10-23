@@ -1,11 +1,23 @@
 """Training API safety tests."""
 
-from app.main import app
+from app.core.config import Settings
+from app.main import create_app
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 
-def test_training_api_requires_explicit_confirmation() -> None:
-    response = TestClient(app).post(
+def _admin_client(monkeypatch) -> TestClient:
+    import app.main as main
+
+    settings = Settings(api_key=SecretStr("training-admin-" + "a" * 32), api_principals_json=None)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    return TestClient(
+        create_app(), headers={"Authorization": "Bearer training-admin-" + "a" * 32}
+    )
+
+
+def test_training_api_requires_explicit_confirmation(monkeypatch) -> None:
+    response = _admin_client(monkeypatch).post(
         "/api/v1/training/runs",
         json={"dataset_id": "intent_v1", "confirm": False},
     )
@@ -14,8 +26,8 @@ def test_training_api_requires_explicit_confirmation() -> None:
     assert "confirmation" in response.json()["detail"]
 
 
-def test_training_dataset_and_preflight_endpoints_are_available() -> None:
-    client = TestClient(app)
+def test_training_dataset_and_preflight_endpoints_are_available(monkeypatch) -> None:
+    client = _admin_client(monkeypatch)
     datasets = client.get("/api/v1/training/datasets")
     preflight = client.get("/api/v1/training/preflight")
 
@@ -25,8 +37,8 @@ def test_training_dataset_and_preflight_endpoints_are_available() -> None:
     assert "optional_packages" in preflight.json()
 
 
-def test_training_api_rejects_smoke_fixture_before_background_job() -> None:
-    response = TestClient(app).post(
+def test_training_api_rejects_smoke_fixture_before_background_job(monkeypatch) -> None:
+    response = _admin_client(monkeypatch).post(
         "/api/v1/training/runs",
         json={"dataset_id": "intent_v1", "confirm": True},
     )

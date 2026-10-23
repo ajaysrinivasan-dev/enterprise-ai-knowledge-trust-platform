@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_settings
@@ -11,6 +11,16 @@ from app.ingestion.parsers import parse_document
 from app.ingestion.validation import validate_upload
 
 router = APIRouter(prefix="/api/v1")
+
+
+def _tenant_scope(request: Request, *, for_write: bool = False) -> str:
+    """Use only the tenant established by authentication middleware, never request data."""
+
+    tenant_id = getattr(request.state, "eaktp_tenant_id", "default")
+    if tenant_id == "*" and for_write:
+        home_tenant = getattr(request.state, "eaktp_home_tenant_id", "default")
+        return home_tenant if home_tenant != "*" else "default"
+    return tenant_id
 
 
 class EvidenceInput(BaseModel):
@@ -212,35 +222,66 @@ def readiness(settings: Annotated[Settings, Depends(get_settings)]) -> HealthRes
 
 @router.post("/documents", response_model=DocumentResponse, tags=["documents"])
 async def upload_document(
+    request: Request,
     file: Annotated[UploadFile, File(...)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentResponse:
     """Validate, parse, redact, and index a document without exposing its contents."""
 
     filename = file.filename or ""
-    content = await file.read()
+    content = await file.read(settings.max_upload_bytes + 1)
     try:
         extension = validate_upload(filename, content, settings.max_upload_bytes)
         parsed = parse_document(filename, content, extension)
         from app.api.rag_runtime import index_document
 
-        metadata = index_document(parsed)
+        metadata = index_document(parsed, tenant_id=_tenant_scope(request, for_write=True))
     except (ValueError, RuntimeError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return DocumentResponse.model_validate(metadata)
 
 
 @router.get("/documents", response_model=list[DocumentResponse], tags=["documents"])
-def documents() -> list[DocumentResponse]:
+def documents(request: Request) -> list[DocumentResponse]:
     """List indexed document metadata."""
 
     from app.api.rag_runtime import list_documents
 
-    return [DocumentResponse.model_validate(item) for item in list_documents()]
+    return [
+        DocumentResponse.model_validate(item)
+        for item in list_documents(tenant_id=_tenant_scope(request))
+    ]
+
+
+@router.delete("/documents/{document_id}", status_code=204, tags=["documents"])
+def delete_document(document_id: str, request: Request) -> None:
+    """Delete a document only when it belongs to the caller's tenant scope."""
+
+    from app.api import rag_runtime
+
+    tenant_id = _tenant_scope(request)
+    owned = next(
+        (
+            item
+            for item in rag_runtime.list_documents(tenant_id=tenant_id)
+            if item.get("document_id") == document_id
+        ),
+        None,
+    )
+    if owned is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    delete = getattr(rag_runtime._service.store, "delete_document", None)
+    if not callable(delete):
+        raise HTTPException(status_code=503, detail="document deletion is unavailable")
+    try:
+        delete(document_id)
+        rag_runtime._documents.pop(document_id, None)
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail="document deletion failed") from exc
 
 
 @router.post("/retrieve", response_model=list[RetrievalResponse], tags=["retrieval"])
-def retrieve(request: QuestionRequest) -> list[RetrievalResponse]:
+def retrieve(question_request: QuestionRequest, request: Request) -> list[RetrievalResponse]:
     """Inspect retrieved evidence without generating an answer."""
 
     from app.api.rag_runtime import retrieve as retrieve_evidence
@@ -253,23 +294,35 @@ def retrieve(request: QuestionRequest) -> list[RetrievalResponse]:
             text=result.chunk.text,
             score=result.score,
         )
-        for result in retrieve_evidence(request.question, request.top_k, request.min_score)
+        for result in retrieve_evidence(
+            question_request.question,
+            question_request.top_k,
+            question_request.min_score,
+            tenant_id=_tenant_scope(request),
+        )
     ]
 
 
 @router.post("/questions", response_model=QuestionResponse, tags=["generation"])
-def question(request: QuestionRequest) -> QuestionResponse:
+def question(question_request: QuestionRequest, request: Request) -> QuestionResponse:
     """Return a grounded retrieval-only answer with validated source citations."""
 
     from app.api.rag_runtime import answer
     from app.api.rag_runtime import retrieve as retrieve_evidence
 
-    evidence = retrieve_evidence(request.question, request.top_k, request.min_score)
+    tenant_id = _tenant_scope(request)
+    evidence = retrieve_evidence(
+        question_request.question,
+        question_request.top_k,
+        question_request.min_score,
+        tenant_id=tenant_id,
+    )
     result = answer(
-        request.question,
-        request.top_k,
-        request.min_score,
+        question_request.question,
+        question_request.top_k,
+        question_request.min_score,
         evidence=evidence,
+        tenant_id=tenant_id,
     )
     return QuestionResponse(
         answer=result.answer,
