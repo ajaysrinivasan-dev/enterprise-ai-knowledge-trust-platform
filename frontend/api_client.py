@@ -47,10 +47,41 @@ class ApiClient:
                     "Set EAKTP_UI_API_KEY to a configured principal key and restart both services."
                 ) from exc
             if exc.response.status_code == 403:
-                raise ApiAuthorizationError(
-                    "The configured frontend credential is authenticated but lacks permission "
-                    "for this operation. Use a writer credential for documents."
-                ) from exc
+                detail = ""
+                try:
+                    payload = exc.response.json()
+                    if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
+                        detail = payload["detail"].strip()
+                except ValueError:
+                    pass
+
+                if detail == "Administrator access required":
+                    if path.startswith("/api/v1/evaluations"):
+                        message = (
+                            "Evaluation is administrator-only. Use an authorized administrator "
+                            "workflow or ask the project administrator for access."
+                        )
+                    elif path.startswith("/api/v1/training/"):
+                        message = (
+                            "Training is administrator-only. Use an authorized administrator "
+                            "workflow or ask the project administrator for access."
+                        )
+                    else:
+                        message = (
+                            "This operation requires administrator permission. "
+                            "Ask the project administrator for access."
+                        )
+                elif detail == "Reader access is read-only":
+                    message = (
+                        "This operation changes data and requires a writer or administrator "
+                        "credential. Document listing remains available to readers."
+                    )
+                else:
+                    message = (
+                        "The configured frontend credential is authenticated but lacks "
+                        "permission for this operation. Check the backend role policy."
+                    )
+                raise ApiAuthorizationError(message) from exc
             raise ApiClientError(
                 f"FastAPI returned HTTP {exc.response.status_code} for this request."
             ) from exc

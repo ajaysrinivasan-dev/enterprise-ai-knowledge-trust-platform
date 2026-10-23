@@ -100,3 +100,48 @@ def test_api_client_reports_connectivity_without_exposing_credentials(monkeypatc
 
     with pytest.raises(ApiConnectionError, match="Could not reach FastAPI"):
         ApiClient(api_key="secret-that-must-not-appear").list_documents()
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_message"),
+    [
+        (
+            "/api/v1/evaluations",
+            "Evaluation is administrator-only",
+        ),
+        (
+            "/api/v1/training/preflight",
+            "Training is administrator-only",
+        ),
+    ],
+)
+def test_admin_only_operations_explain_required_role(
+    monkeypatch, path: str, expected_message: str
+) -> None:
+    request = httpx.Request("GET", f"http://test{path}")
+    response = httpx.Response(
+        403,
+        request=request,
+        json={"detail": "Administrator access required"},
+    )
+    monkeypatch.setattr(httpx, "request", lambda *args, **kwargs: response)
+
+    client = ApiClient(api_key="a-secret-key-that-must-not-be-displayed")
+    with pytest.raises(ApiAuthorizationError, match=expected_message) as exc_info:
+        client._request("GET", path)
+
+    assert "writer credential for documents" not in str(exc_info.value)
+    assert "a-secret-key-that-must-not-be-displayed" not in str(exc_info.value)
+
+
+def test_reader_write_denial_explains_writer_requirement(monkeypatch) -> None:
+    request = httpx.Request("POST", "http://test/api/v1/documents")
+    response = httpx.Response(
+        403,
+        request=request,
+        json={"detail": "Reader access is read-only"},
+    )
+    monkeypatch.setattr(httpx, "request", lambda *args, **kwargs: response)
+
+    with pytest.raises(ApiAuthorizationError, match="requires a writer or administrator"):
+        ApiClient(api_key="key").upload_document("sample.txt", b"sample")
