@@ -1,6 +1,8 @@
 """Deterministic evaluation tests."""
 
-from app.evaluation.dataset import load_jsonl
+from datetime import UTC, datetime
+
+from app.evaluation.dataset import dataset_fingerprint, load_jsonl
 from app.evaluation.metrics import (
     binary_f1,
     citation_relevance,
@@ -25,7 +27,16 @@ def test_metrics_are_deterministic_and_zero_safe() -> None:
 def test_dataset_and_run_storage(tmp_path) -> None:
     cases = load_jsonl("data/evaluation/synthetic_v1.jsonl")
     assert len(cases) == 2
+    assert len(dataset_fingerprint(cases)) == 64
     store = EvaluationStore(str(tmp_path / "evaluation.db"))
-    run = EvaluationRun.now("run-1", "synthetic_v1", {"recall_at_1": 1.0})
+    run = EvaluationRun(
+        "run-1",
+        "synthetic_v1",
+        datetime.now(UTC),
+        {"recall_at_1": 1.0},
+        dataset_fingerprint="fixture-fingerprint",
+    )
     store.save(run)
-    assert store.list_runs()[0].metrics["recall_at_1"] == 1.0
+    stored = store.list_runs()[0]
+    assert stored.metrics["recall_at_1"] == 1.0
+    assert stored.dataset_fingerprint == "fixture-fingerprint"

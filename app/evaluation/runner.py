@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import uuid4
 
+from app.evaluation.dataset import dataset_fingerprint
 from app.evaluation.metrics import (
     answer_correctness,
     citation_relevance,
@@ -44,6 +45,7 @@ class EvaluationRunner:
 
         if not cases:
             raise ValueError("evaluation dataset is empty")
+        fingerprint = dataset_fingerprint(cases)
         execution = config or EvaluationConfig()
         started = perf_counter()
         outcomes: list[ExampleOutcome] = []
@@ -128,6 +130,8 @@ class EvaluationRunner:
         run = EvaluationRun(
             run_id=run_id or str(uuid4()),
             dataset_version=dataset_version,
+            dataset_fingerprint=fingerprint,
+            dataset_status="synthetic_smoke",
             created_at=datetime.now(UTC),
             metrics=metrics,
             errors=tuple(errors),

@@ -40,6 +40,18 @@ group:
 python -m pip install -e ".[rag]"
 ```
 
+The runtime honors `EAKTP_EMBEDDING_BACKEND` (`hash` by default, or
+`sentence-transformers`) and `EAKTP_VECTOR_BACKEND` (`sqlite` by default, `memory`, or
+`chroma`). SQLite stores sanitized chunks, embeddings, and safe document metadata in
+`EAKTP_SQLITE_VECTOR_PATH` (default `data/runtime/eaktp.sqlite3`), so retrieval and the
+document list survive API restarts without an external service. The memory backend is
+intentionally ephemeral. ChromaDB stores vectors/chunks persistently, but the current
+runtime's restart-safe document catalog is implemented for SQLite; with Chroma selected,
+document metadata remains process-local. Sentence Transformers may download its configured
+model if it is not cached. Use a separate vector database/path when changing embedding
+models because vector dimensions and spaces may differ. Runtime SQLite files are local data
+and should remain excluded from version control.
+
 For the optional LangGraph adapter:
 
 ```powershell
@@ -53,9 +65,9 @@ python -m pip install -e ".[evaluation,training]"
 ```
 
 The deterministic evaluation fixture is `data\evaluation\synthetic_v1.jsonl`, and the
-intent-routing benchmark fixture is `data\training\intent_v1.jsonl`. The current test
-suite measures deterministic behavior only; it does not claim RAGAS, DeepEval, LoRA, or
-QLoRA results.
+intent-routing benchmark fixture is `data\training\intent_v1.jsonl`. Evaluation runs
+record a stable dataset fingerprint and synthetic-data status; the current test suite
+does not claim RAGAS, DeepEval, LoRA, or QLoRA production results.
 
 ## Optional training workflow
 
@@ -78,10 +90,10 @@ Invoke-RestMethod -Method Post `
   -Body '{"dataset_id":"intent_v1","base_model":"sshleifer/tiny-gpt2","method":"lora","confirm":true}'
 ```
 
-QLoRA requires runtime CUDA, compatible bitsandbytes, and sufficient VRAM. The actual
-development preflight currently reports CPU-only PyTorch, no GPU, and missing PEFT and
-bitsandbytes, so no training result is claimed. The five-example synthetic dataset is
-only a smoke-test fixture and cannot support production generalization claims. Check the
+QLoRA requires runtime CUDA, compatible bitsandbytes, and sufficient VRAM. Use the
+isolated GPU environment only for an explicitly approved smoke test; the five-example
+synthetic dataset is only a smoke-test fixture and cannot support production
+generalization claims. Check the
 selected Hugging Face model card and dataset terms before downloading or training; the
 default `sshleifer/tiny-gpt2` configuration is intended for a local smoke test only.
 
@@ -103,8 +115,9 @@ Invoke-RestMethod -Method Post `
 
 Evaluation runs persist under `data/runtime/evaluation.db` by default. The API accepts
 dataset identifiers, not arbitrary filesystem paths. Results distinguish completed and
-failed examples, record actual errors and latency, and expose only deterministic metrics
-unless an external evaluator is separately integrated and executed.
+failed examples, record actual errors, latency, dataset fingerprints, and dataset
+status, and expose only deterministic metrics unless an external evaluator is separately
+integrated and executed.
 
 Set `EAKTP_OLLAMA_MODEL` in `.env` only after confirming the model exists locally with
 `ollama list`. Without it, the API returns explicitly labeled retrieval-only evidence
@@ -114,20 +127,45 @@ Open the API documentation at `http://127.0.0.1:8000/docs` and the dashboard at
 `http://localhost:8501`. Python 3.11–3.14 is supported by the project metadata; use
 the interpreter available on the machine, subject to dependency compatibility.
 
-## Security and privacy assumptions
+## Security and privacy
 
-The initial app is for local development and has no user authentication. Do not expose
-it to a company network. Secrets belong in `.env`, which is ignored by Git. Later
-phases must validate uploads, redact PII before indexing, restrict tools, and avoid
-logging raw prompts or documents.
+The API supports Bearer-key access control. Configure these variables in your ignored
+`.env` file; never commit real secrets. Use separate, randomly generated secrets of at
+least 32 characters for each enabled role:
+
+- `EAKTP_API_KEY`: administrator key. Required in production-like environments (anything
+  other than `development`, `dev`, or `test`). Administrators can use all API routes.
+- `EAKTP_READ_API_KEY`: optional reader key. Permits read-only HTTP methods (`GET`, `HEAD`,
+  `OPTIONS`) on non-admin-only routes.
+- `EAKTP_WRITE_API_KEY`: optional writer key. Permits normal read/write API routes, but
+  not administrator-only training routes, the `/api/v1/agent` route, or non-GET evaluation
+  requests.
+
+When at least one key is configured, requests to `/api/v1/*` must include
+`Authorization: Bearer <key>`, except `/api/v1/health` and `/api/v1/ready`, which remain
+public. A blank role-specific key disables that key; do not reuse the same secret across
+roles. The current implementation identifies roles by shared keys, not individual users,
+and does not provide per-user identity or document-level ownership/isolation.
+
+Example PowerShell request using the administrator key:
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:EAKTP_API_KEY" }
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/documents -Headers $headers
+```
+
+Keep the service bound to localhost unless you have also configured TLS, network controls,
+key rotation, and appropriate operational monitoring. Uploads are redacted before indexing,
+but pattern-based PII redaction is not guaranteed to catch every sensitive value.
 
 ## Current limitations
 
 The default runtime remains local and process-scoped. ChromaDB, Sentence Transformers,
 Ollama, LangGraph, RAGAS/DeepEval, and training libraries are optional and are not
 required for the deterministic test suite. The deterministic verifier is a conservative
-fallback, not proof of factual correctness. Email drafts never send automatically, and
-the local app has no authentication.
+fallback, not proof of factual correctness. Email drafts never send automatically. Role-key
+authentication is available as described above; when no keys are configured in local
+development, API routes remain open for convenient testing.
 
 See [docs/architecture.md](./docs/architecture.md) and the attached implementation
 requirements for the phased RAG, verification, agent, evaluation, and training work.

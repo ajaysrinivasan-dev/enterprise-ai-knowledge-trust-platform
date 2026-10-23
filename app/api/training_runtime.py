@@ -129,6 +129,7 @@ def benchmark_adapter(adapter_id: str) -> dict[str, object]:
     splits = split_intent_dataset(rows, seed=metadata.split_seed)
     texts = [row["text"] for row in splits.test]
     labels = [row["intent"] for row in splits.test]
+    dataset_fingerprint = splits.fingerprint
 
     def baseline(text: str) -> str:
         lowered = text.casefold()
@@ -142,22 +143,24 @@ def benchmark_adapter(adapter_id: str) -> dict[str, object]:
             return "verify"
         return "question"
 
-    baseline_result = benchmark_router("deterministic-baseline", baseline, texts, labels)
-    baseline_result = baseline_result.__class__(
-        **{**baseline_result.__dict__, "dataset_fingerprint": splits.fingerprint}
+    baseline_result = benchmark_router(
+        "deterministic-baseline",
+        baseline,
+        texts,
+        labels,
+        dataset_fingerprint=dataset_fingerprint,
+        dataset_status="synthetic_smoke",
     )
     adapter_result = benchmark_router(
         metadata.base_model,
         load_adapter_predictor(metadata),
         texts,
         labels,
+        dataset_fingerprint=dataset_fingerprint,
+        dataset_status="synthetic_smoke",
         trained=True,
     )
     adapter_result = adapter_result.__class__(
-        **{
-            **adapter_result.__dict__,
-            "dataset_fingerprint": splits.fingerprint,
-            "adapter_id": adapter_id,
-        }
+        **{**adapter_result.__dict__, "adapter_id": adapter_id}
     )
     return benchmark_comparison(baseline_result, adapter_result)

@@ -122,6 +122,8 @@ class EvaluationRunResponse(BaseModel):
 
     run_id: str
     dataset_version: str
+    dataset_fingerprint: str
+    dataset_status: str
     created_at: str
     metrics: dict[str, float | None]
     errors: list[str]
@@ -262,8 +264,13 @@ def question(request: QuestionRequest) -> QuestionResponse:
     from app.api.rag_runtime import answer
     from app.api.rag_runtime import retrieve as retrieve_evidence
 
-    result = answer(request.question, request.top_k, request.min_score)
     evidence = retrieve_evidence(request.question, request.top_k, request.min_score)
+    result = answer(
+        request.question,
+        request.top_k,
+        request.min_score,
+        evidence=evidence,
+    )
     return QuestionResponse(
         answer=result.answer,
         abstained=result.abstained,
@@ -311,6 +318,8 @@ def _evaluation_response(run) -> EvaluationRunResponse:
     return EvaluationRunResponse(
         run_id=run.run_id,
         dataset_version=run.dataset_version,
+        dataset_fingerprint=run.dataset_fingerprint,
+        dataset_status=run.dataset_status,
         created_at=run.created_at.isoformat(),
         metrics=run.metrics,
         errors=list(run.errors),

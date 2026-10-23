@@ -23,6 +23,8 @@ def test_evaluation_api_runs_and_lists_approved_dataset(tmp_path, monkeypatch) -
     assert response.status_code == 200
     payload = response.json()
     assert payload["dataset_version"] == "synthetic_v1"
+    assert len(payload["dataset_fingerprint"]) == 64
+    assert payload["dataset_status"] == "synthetic_smoke"
     assert "failure_rate" in payload["metrics"]
 
     listed = client.get("/api/v1/evaluations")

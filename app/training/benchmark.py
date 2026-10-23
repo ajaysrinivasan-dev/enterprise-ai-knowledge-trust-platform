@@ -20,9 +20,11 @@ class BenchmarkResult:
     per_class: dict[str, dict[str, float]]
     confusion_matrix: dict[str, dict[str, int]]
     failure_rate: float
+    dataset_fingerprint: str
+    split: str
+    dataset_status: str
     macro_f1: float = 0.0
     weighted_f1: float = 0.0
-    dataset_fingerprint: str | None = None
     adapter_id: str | None = None
 
 
@@ -32,12 +34,23 @@ def benchmark_router(
     texts: Sequence[str],
     labels: Sequence[str],
     *,
+    dataset_fingerprint: str,
+    split: str = "test",
+    dataset_status: str,
     trained: bool = False,
 ) -> BenchmarkResult:
     """Measure an intent predictor on a held-out sequence."""
 
     if len(texts) != len(labels):
         raise ValueError("texts and labels must have equal lengths")
+    if not dataset_fingerprint.strip():
+        raise ValueError("dataset fingerprint is required")
+    if split != "test":
+        raise ValueError("benchmarks must use the held-out test split")
+    if dataset_status not in {"synthetic_smoke", "approved_real"}:
+        raise ValueError("dataset status must be synthetic_smoke or approved_real")
+    if not texts:
+        raise ValueError("benchmark split must not be empty")
     started = perf_counter()
     predictions = [predictor(text) for text in texts]
     elapsed = (perf_counter() - started) * 1000
@@ -51,6 +64,9 @@ def benchmark_router(
         per_class=report,
         confusion_matrix=_confusion(predictions, labels),
         failure_rate=0.0,
+        dataset_fingerprint=dataset_fingerprint,
+        split=split,
+        dataset_status=dataset_status,
         macro_f1=sum(item["f1"] for item in report.values()) / len(report) if report else 0.0,
         weighted_f1=_weighted_f1(report, labels),
     )
@@ -107,11 +123,13 @@ def benchmark_comparison(
     if baseline.sample_count != fine_tuned.sample_count:
         raise ValueError("benchmarks must use the same held-out sample count")
     if (
-        baseline.dataset_fingerprint is not None
-        and fine_tuned.dataset_fingerprint is not None
-        and baseline.dataset_fingerprint != fine_tuned.dataset_fingerprint
+        baseline.dataset_fingerprint != fine_tuned.dataset_fingerprint
     ):
         raise ValueError("benchmarks must use the same held-out dataset")
+    if baseline.split != fine_tuned.split:
+        raise ValueError("benchmarks must use the same evaluation split")
+    if baseline.dataset_status != fine_tuned.dataset_status:
+        raise ValueError("benchmarks must use the same dataset status")
     return {
         "baseline": baseline,
         "fine_tuned": fine_tuned,

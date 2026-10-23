@@ -45,6 +45,8 @@ def test_runner_records_success_and_partial_failure(tmp_path) -> None:
 
     assert run.metrics["completion_rate"] == 0.5
     assert run.metrics["failure_rate"] == 0.5
+    assert len(run.dataset_fingerprint) == 64
+    assert run.dataset_status == "synthetic_smoke"
     assert [outcome.status for outcome in run.outcomes] == ["completed", "failed"]
     assert len(EvaluationStore(str(tmp_path / "runs.db")).list_runs()) == 1
 

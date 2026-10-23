@@ -132,6 +132,34 @@ Latest verification:
 - Readiness currently checks only process-level readiness; dependency checks will be
   added when those dependencies exist.
 
+## Integration and release-readiness audit
+
+**Status: verified offline; production integrations remain opt-in**
+
+Fixed and verified:
+
+- Question responses use one retrieval result set for generated citations and displayed
+  evidence.
+- Evaluation datasets reject empty or duplicate case IDs and expose stable fingerprints.
+- Persisted evaluation runs record dataset fingerprint and synthetic/approved status;
+  comparisons include these compatibility fields.
+- Training benchmarks require a non-empty held-out test split, a fingerprint, and an
+  explicit dataset status.
+- Ingestion redacts PII before chunking and indexing; workflow SQL remains read-only and
+  allowlisted; email remains draft-only.
+
+Verification:
+
+- `py -m pytest`: 55 passed.
+- `py -m ruff check .`: passed.
+- `py -m compileall -q app tests`: passed.
+
+Remaining blockers:
+
+- No approved production intent or evaluation dataset is present.
+- Optional Sentence Transformers, ChromaDB, Ollama, LangGraph, external evaluators, and
+  real production-scale training remain unverified.
+
 ## Phase 4 — Claim verification and agent workflows
 
 **Status: core complete**
@@ -390,3 +418,85 @@ Still unverified:
 - A genuine QLoRA run on CUDA with bitsandbytes.
 - Real base-model inference and measured baseline-versus-adapter performance.
 - Production-scale dataset quality or generalization.
+
+## Phase 9 — Configurable retrieval provider wiring
+
+**Status: implemented and offline-tested; optional providers not executed**
+
+Implemented:
+
+- Runtime retrieval now honors `EAKTP_EMBEDDING_BACKEND` (`hash` or
+  `sentence-transformers`) and `EAKTP_VECTOR_BACKEND` (`memory` or `chroma`).
+- Hash embeddings and in-memory storage remain the no-download defaults.
+- Explicit optional-provider configuration fails clearly if its dependency is missing;
+  there is no silent fallback to a different embedding/vector backend.
+- The vector store is initialized before a Sentence Transformers model, so missing
+  ChromaDB fails before a model could be initialized or downloaded.
+- `.env.example` and README document backend settings, model/cache implications, and the
+  need for separate Chroma paths when changing embedding models.
+- Added tests for default backend selection and configured optional-provider wiring using
+  fakes; no optional service or model was downloaded or started.
+
+Verification after this milestone:
+
+- `py -m pytest`: 58 passed, with two existing dependency deprecation warnings.
+- `py -m ruff check .`: passed after fixing import ordering in the new tests.
+- `py -m compileall -q app tests`: passed.
+
+Remaining limitations:
+
+- Persistent Chroma vectors/chunks do not yet make the document-list metadata persistent;
+  `_documents` is still process-local.
+- ChromaDB and Sentence Transformers were not installed/loaded or exercised against a real
+  model/service in this milestone.
+- An approved production intent dataset is still required; no synthetic records were
+  promoted or invented as production data.
+
+## Phase 10 — Persistent document catalog and SQLite retrieval
+
+**Status: implemented and verified**
+
+Verification: `py -m pytest` — 59 passed (two existing dependency deprecation warnings); `py -m ruff check .` — passed; `py -m compileall -q app tests` — passed.
+
+Implemented:
+
+- Added a built-in SQLite vector store that persists sanitized chunks and their embeddings,
+  allowing retrieval to survive API process restarts without an external service.
+- Stores safe document metadata (document ID, source name, PII detection counts, chunk count)
+  alongside vectors in the same SQLite database. Document listings filter out records whose
+  chunk counts do not match persisted chunks.
+- SQLite is now the default vector backend; the explicit in-memory backend remains available
+  for tests/ephemeral development and Chroma remains optional.
+- Added document metadata validation against stored chunk counts and coordinated deletion of
+  chunks plus catalog metadata.
+- Added a restart-style test that creates a document with an email address, reconstructs the
+  store from the same database, confirms retrieval/listing survive, checks raw email is absent,
+  and verifies deletion removes both chunks and metadata.
+- Updated `.env.example` and README to document backend selection and the remaining Chroma
+  catalog limitation.
+
+Important limitations:
+
+- Restart-safe catalog persistence is currently supported by SQLite. If Chroma is selected,
+  its vectors persist but this runtime's document metadata catalog remains process-local.
+- The database stores redacted chunk text and embeddings; it does not preserve original
+  uploaded files or raw unredacted text.
+- This is a local single-node persistence layer, not a multi-user or distributed database.
+
+
+## Phase 11 — Shared API-key authentication
+
+**Status: implemented; offline verification in progress**
+
+Implemented:
+
+- Added optional `EAKTP_API_KEY` as a secret setting. When configured, API requests to `/api/v1/*` require an exact `Authorization: Bearer ...` credential, compared using constant-time comparison.
+- `/api/v1/health` and `/api/v1/ready` remain public for monitoring.
+- Non-development environments refuse to initialize without a non-empty API key of at least 32 characters.
+- Blank API keys remain disabled in development so copying `.env.example` does not unexpectedly break local requests.
+- Updated `.env.example` and README with key setup, PowerShell usage, and explicit security limitations.
+- Added tests for missing/wrong/correct keys, public health endpoints, production configuration requirements, and blank development keys.
+
+Security boundary:
+
+- This is shared-key authentication only; it does not provide individual identities, roles, per-document access control, rate limiting, key rotation, or TLS. Keep the server bound to localhost until deployment controls are configured.

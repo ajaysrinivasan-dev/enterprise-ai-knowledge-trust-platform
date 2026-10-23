@@ -15,4 +15,4 @@ data/runtime/
 models/
 artifacts/
 .streamlit/secrets.toml
-
+.venv-gpu/

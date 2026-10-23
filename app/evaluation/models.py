@@ -48,6 +48,8 @@ class EvaluationRun:
     dataset_version: str
     created_at: datetime
     metrics: dict[str, float | None]
+    dataset_fingerprint: str = ""
+    dataset_status: str = "synthetic_smoke"
     errors: tuple[str, ...] = ()
     config: EvaluationConfig = EvaluationConfig()
     outcomes: tuple[ExampleOutcome, ...] = ()
@@ -61,10 +63,21 @@ class EvaluationRun:
         metrics: dict[str, float | None],
         errors: tuple[str, ...] = (),
     ) -> "EvaluationRun":
-        return cls(run_id, dataset_version, datetime.now(UTC), metrics, errors)
+        return cls(
+            run_id,
+            dataset_version,
+            datetime.now(UTC),
+            metrics,
+            errors=errors,
+        )
 
     @property
-    def compatible_key(self) -> tuple[str, str]:
+    def compatible_key(self) -> tuple[str, str, str, str]:
         """Runs are comparable only when their dataset and pipeline match."""
 
-        return self.dataset_version, self.config.pipeline_id
+        return (
+            self.dataset_version,
+            self.dataset_fingerprint,
+            self.dataset_status,
+            self.config.pipeline_id,
+        )

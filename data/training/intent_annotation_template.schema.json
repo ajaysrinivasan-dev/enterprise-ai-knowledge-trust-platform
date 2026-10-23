@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EAKTP intent annotation record template",
+  "description": "Schema only. This is not a training dataset and contains no records.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "group_id",
+    "text",
+    "intent"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable non-sensitive annotation identifier."
+    },
+    "group_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Leakage-prevention group for a conversation, template, or paraphrase family."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PII-redacted user request."
+    },
+    "intent": {
+      "type": "string",
+      "enum": [
+        "question",
+        "search",
+        "sql_report",
+        "email_draft",
+        "verify"
+      ]
+    }
+  }
+}
