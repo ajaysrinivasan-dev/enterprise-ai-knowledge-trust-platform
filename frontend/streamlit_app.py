@@ -1,14 +1,23 @@
 """Initial Streamlit dashboard shell."""
 
-import httpx
 import streamlit as st
 from app.core.config import get_settings
 
-from frontend.api_client import ApiClient
+from frontend.api_client import (
+    ApiAuthenticationError,
+    ApiAuthorizationError,
+    ApiClient,
+    ApiClientError,
+    ApiConnectionError,
+)
+from frontend.auth import FrontendCredentialError, resolve_frontend_api_key
 
 settings = get_settings()
-configured_key = settings.ui_api_key or settings.write_api_key or settings.read_api_key
-client = ApiClient(api_key=configured_key.get_secret_value() if configured_key else None)
+try:
+    client = ApiClient(api_key=resolve_frontend_api_key(settings))
+except FrontendCredentialError as exc:
+    client = None
+    credential_error = str(exc)
 
 st.set_page_config(page_title=settings.app_name, page_icon="🛡️", layout="wide")
 st.title(settings.app_name)
@@ -16,6 +25,9 @@ st.caption(
     "Local development foundation — privacy-aware retrieval and verification "
     "are being added incrementally."
 )
+if client is None:
+    st.error(credential_error)
+    st.stop()
 
 overview, documents, assistant, evaluation, training = st.tabs(
     ["Overview", "Documents", "Knowledge assistant", "Evaluation", "Training"]
@@ -27,18 +39,33 @@ with overview:
     )
 with documents:
     st.subheader("Document management")
-    upload = st.file_uploader("Upload a TXT, Markdown, PDF, or DOCX document")
-    if upload is not None and st.button("Index document"):
+    if client is None:
+        st.error(credential_error)
+    else:
+        upload = st.file_uploader("Upload a TXT, Markdown, PDF, or DOCX document")
+        if upload is not None and st.button("Index document"):
+            try:
+                result = client.upload_document(upload.name, upload.getvalue())
+                st.success(f"Indexed {result['source_name']} ({result['chunk_count']} chunks).")
+                st.json(result["pii_counts"])
+            except ApiAuthenticationError as exc:
+                st.error(str(exc))
+            except ApiAuthorizationError as exc:
+                st.error(str(exc))
+            except ApiConnectionError as exc:
+                st.error(str(exc))
+            except ApiClientError as exc:
+                st.error(str(exc))
         try:
-            result = client.upload_document(upload.name, upload.getvalue())
-            st.success(f"Indexed {result['source_name']} ({result['chunk_count']} chunks).")
-            st.json(result["pii_counts"])
-        except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-            st.error(f"Document indexing failed: {exc}")
-    try:
-        st.dataframe(client.list_documents(), use_container_width=True)
-    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-        st.info(f"Start the FastAPI service to view indexed documents: {exc}")
+            st.dataframe(client.list_documents(), use_container_width=True)
+        except ApiAuthenticationError as exc:
+            st.error(str(exc))
+        except ApiAuthorizationError as exc:
+            st.error(str(exc))
+        except ApiConnectionError as exc:
+            st.info(str(exc))
+        except ApiClientError as exc:
+            st.error(str(exc))
 with assistant:
     st.subheader("AI knowledge assistant")
     question = st.text_input("Ask about indexed documents")
@@ -51,7 +78,7 @@ with assistant:
             for citation in result["citations"]:
                 with st.expander(f"{citation['source_name']} — {citation['chunk_id']}"):
                     st.write(citation["excerpt"])
-        except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        except (ApiClientError, ValueError) as exc:
             st.error(f"Question failed: {exc}")
 with evaluation:
     st.subheader("Offline evaluation")
@@ -65,7 +92,7 @@ with evaluation:
             if failures:
                 st.warning("Some examples failed or were skipped.")
                 st.dataframe(failures, use_container_width=True)
-        except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        except (ApiClientError, ValueError) as exc:
             st.error(f"Evaluation failed: {exc}")
     try:
         runs = client.list_evaluations()
@@ -82,7 +109,7 @@ with evaluation:
                 ],
                 use_container_width=True,
             )
-    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+    except (ApiClientError, ValueError) as exc:
         st.info(f"Start the FastAPI service to view evaluation runs: {exc}")
 with training:
     st.subheader("Optional LoRA / QLoRA training")
@@ -100,5 +127,5 @@ with training:
         if st.button("Start training"):
             result = client.start_training(dataset, model, method, confirm)
             st.info(f"Training job: {result['job_id']}")
-    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+    except (ApiClientError, ValueError) as exc:
         st.info(f"Training services unavailable: {exc}")

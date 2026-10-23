@@ -1,0 +1,102 @@
+"""Frontend credential selection and safe API error tests."""
+
+import json
+
+import httpx
+import pytest
+from app.core.config import Settings, get_settings
+from fastapi.testclient import TestClient
+from frontend.api_client import (
+    ApiAuthenticationError,
+    ApiAuthorizationError,
+    ApiClient,
+    ApiConnectionError,
+)
+from frontend.auth import FrontendCredentialError, resolve_frontend_api_key
+from pydantic import SecretStr
+
+
+def test_matching_ui_credential_is_sent_to_the_backend(monkeypatch) -> None:
+    import app.main as main
+
+    key = "tenant-a-key-" + "a" * 32
+    settings = Settings(
+        api_principals_json=SecretStr(
+            json.dumps(
+                [
+                    {
+                        "key": key,
+                        "principal_id": "alice",
+                        "tenant_id": "tenant-a",
+                        "role": "writer",
+                    }
+                ]
+            )
+        ),
+        ui_api_key=SecretStr(key),
+    )
+
+    selected = resolve_frontend_api_key(settings)
+    client = ApiClient(api_key=selected)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    application = main.create_app()
+    application.dependency_overrides[get_settings] = lambda: settings
+    response = TestClient(application).get("/api/v1/documents", headers=client.headers)
+
+    assert selected == key
+    assert client.headers == {"Authorization": f"Bearer {key}"}
+    assert response.status_code == 200
+
+
+def test_registry_requires_explicit_ui_credential() -> None:
+    settings = Settings(
+        api_principals_json=SecretStr(
+            '[{"key":"tenant-a-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+            '"principal_id":"alice","tenant_id":"tenant-a","role":"writer"}]'
+        ),
+        ui_api_key=None,
+    )
+
+    with pytest.raises(FrontendCredentialError, match="EAKTP_UI_API_KEY is required"):
+        resolve_frontend_api_key(settings)
+
+
+def test_registry_rejects_ui_credential_that_backend_will_not_accept() -> None:
+    settings = Settings(
+        api_principals_json=SecretStr(
+            '[{"key":"tenant-a-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+            '"principal_id":"alice","tenant_id":"tenant-a","role":"writer"}]'
+        ),
+        ui_api_key=SecretStr("wrong-key-" + "b" * 32),
+    )
+
+    with pytest.raises(FrontendCredentialError, match="does not match"):
+        resolve_frontend_api_key(settings)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "error_type"),
+    [
+        (401, ApiAuthenticationError),
+        (403, ApiAuthorizationError),
+    ],
+)
+def test_api_client_distinguishes_authentication_and_authorization(
+    monkeypatch, status_code, error_type
+) -> None:
+    request = httpx.Request("GET", "http://test/api/v1/documents")
+    response = httpx.Response(status_code, request=request)
+    monkeypatch.setattr(httpx, "request", lambda *args, **kwargs: response)
+
+    with pytest.raises(error_type):
+        ApiClient(api_key="key").list_documents()
+
+
+def test_api_client_reports_connectivity_without_exposing_credentials(monkeypatch) -> None:
+    def fail(*args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "request", fail)
+
+    with pytest.raises(ApiConnectionError, match="Could not reach FastAPI"):
+        ApiClient(api_key="secret-that-must-not-appear").list_documents()

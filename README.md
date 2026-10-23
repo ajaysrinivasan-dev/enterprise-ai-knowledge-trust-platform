@@ -141,9 +141,11 @@ least 32 characters for each enabled role:
 - `EAKTP_WRITE_API_KEY`: optional writer key. Permits normal read/write API routes, but
   not administrator-only training routes, the `/api/v1/agent` route, or any evaluation
   route. Evaluation runs include per-example outcomes and are administrator-only.
-- `EAKTP_UI_API_KEY`: optional credential the Streamlit frontend should use. If blank, it
-  uses the writer key, then the reader key; it does not implicitly use the administrator key.
-  Set it to an administrator credential only if the dashboard intentionally needs admin access.
+- `EAKTP_UI_API_KEY`: credential the Streamlit frontend uses for every browser session. It is
+  required when `EAKTP_API_PRINCIPALS_JSON` is configured and must exactly match one registry
+  key. Use a writer principal for document indexing and listing; a reader principal cannot
+  upload. Without the principal registry, a blank UI key falls back to the legacy writer,
+  then reader key; it never implicitly uses the administrator key.
 
 When at least one key is configured, requests to `/api/v1/*` must include
 `Authorization: Bearer <key>`, except `/api/v1/health` and `/api/v1/ready`, which remain
