@@ -24,18 +24,39 @@ class ApiConnectionError(ApiClientError):
 class ApiClient:
     """Call the local FastAPI backend with explicit, bounded timeouts."""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8000", api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:8000",
+        api_key: str | None = None,
+        admin_api_key: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self.admin_headers = (
+            {"Authorization": f"Bearer {admin_api_key}"} if admin_api_key else None
+        )
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         """Send one request and translate failures without exposing credentials."""
 
+        if self._is_admin_only(path) and self.admin_headers is None:
+            if path.startswith("/api/v1/evaluations"):
+                label = "Evaluation"
+            elif path.startswith("/api/v1/training/"):
+                label = "Training"
+            else:
+                label = "This operation"
+            raise ApiAuthorizationError(
+                f"{label} is administrator-only. Configure EAKTP_ADMIN_UI_API_KEY "
+                "to an existing admin principal and restart Streamlit."
+            )
+
         try:
+            headers = self.admin_headers if self._is_admin_only(path) else self.headers
             response = httpx.request(
                 method,
                 f"{self.base_url}{path}",
-                headers=self.headers,
+                headers=headers,
                 **kwargs,
             )
             response.raise_for_status()
@@ -58,13 +79,13 @@ class ApiClient:
                 if detail == "Administrator access required":
                     if path.startswith("/api/v1/evaluations"):
                         message = (
-                            "Evaluation is administrator-only. Use an authorized administrator "
-                            "workflow or ask the project administrator for access."
+                            "Evaluation is administrator-only. Configure EAKTP_ADMIN_UI_API_KEY "
+                            "with an authorized admin principal, then restart Streamlit."
                         )
                     elif path.startswith("/api/v1/training/"):
                         message = (
-                            "Training is administrator-only. Use an authorized administrator "
-                            "workflow or ask the project administrator for access."
+                            "Training is administrator-only. Configure EAKTP_ADMIN_UI_API_KEY "
+                            "with an authorized admin principal, then restart Streamlit."
                         )
                     else:
                         message = (
@@ -89,6 +110,14 @@ class ApiClient:
             raise ApiConnectionError(
                 "Could not reach FastAPI. Start or restart the backend and check its URL."
             ) from exc
+
+    @staticmethod
+    def _is_admin_only(path: str) -> bool:
+        return (
+            path == "/api/v1/agent"
+            or path.startswith("/api/v1/evaluations")
+            or path.startswith("/api/v1/training/")
+        )
 
     def list_documents(self) -> list[dict[str, Any]]:
         return self._request("GET", "/api/v1/documents", timeout=10).json()

@@ -12,7 +12,11 @@ from frontend.api_client import (
     ApiClient,
     ApiConnectionError,
 )
-from frontend.auth import FrontendCredentialError, resolve_frontend_api_key
+from frontend.auth import (
+    FrontendCredentialError,
+    resolve_frontend_admin_api_key,
+    resolve_frontend_api_key,
+)
 from pydantic import SecretStr
 
 
@@ -72,6 +76,81 @@ def test_registry_rejects_ui_credential_that_backend_will_not_accept() -> None:
 
     with pytest.raises(FrontendCredentialError, match="does not match"):
         resolve_frontend_api_key(settings)
+
+
+def test_admin_key_is_resolved_only_for_an_admin_principal() -> None:
+    writer = "tenant-a-key-" + "a" * 32
+    admin = "platform-admin-key-" + "c" * 32
+    settings = Settings(
+        api_principals_json=SecretStr(json.dumps([
+            {"key": writer, "principal_id": "alice", "tenant_id": "tenant-a", "role": "writer"},
+            {
+                "key": admin,
+                "principal_id": "platform-admin",
+                "tenant_id": "admin-home",
+                "role": "admin",
+            },
+        ])),
+        ui_api_key=SecretStr(writer),
+        admin_ui_api_key=SecretStr(admin),
+    )
+    assert resolve_frontend_api_key(settings) == writer
+    assert resolve_frontend_admin_api_key(settings) == admin
+
+
+def test_admin_resolver_rejects_writer_key() -> None:
+    writer = "tenant-a-key-" + "a" * 32
+    settings = Settings(
+        api_principals_json=SecretStr(json.dumps([
+            {"key": writer, "principal_id": "alice", "tenant_id": "tenant-a", "role": "writer"},
+        ])),
+        ui_api_key=SecretStr(writer),
+        admin_ui_api_key=SecretStr(writer),
+    )
+    with pytest.raises(FrontendCredentialError, match="must match an administrator principal"):
+        resolve_frontend_admin_api_key(settings)
+
+
+def test_admin_resolver_requires_matching_legacy_admin_key() -> None:
+    admin = "legacy-admin-key-" + "c" * 32
+    settings = Settings(
+        api_key=SecretStr(admin),
+        api_principals_json=None,
+        admin_ui_api_key=SecretStr(admin),
+    )
+    assert resolve_frontend_admin_api_key(settings) == admin
+    wrong = Settings(
+        api_key=SecretStr(admin),
+        api_principals_json=None,
+        admin_ui_api_key=SecretStr("wrong-" + "d" * 32),
+    )
+    with pytest.raises(FrontendCredentialError, match="must match the configured EAKTP_API_KEY"):
+        resolve_frontend_admin_api_key(wrong)
+
+
+def test_admin_only_client_uses_admin_header_but_documents_use_writer(monkeypatch) -> None:
+    calls = []
+    def fake_request(method, url, **kwargs):
+        calls.append((url, kwargs.get("headers")))
+        request = httpx.Request(method, url)
+        return httpx.Response(200, request=request, json=[])
+    monkeypatch.setattr(httpx, "request", fake_request)
+    client = ApiClient(api_key="writer-key", admin_api_key="admin-key")
+    client.list_documents()
+    client.list_evaluations()
+    client.training_preflight()
+    assert calls[0][1] == {"Authorization": "Bearer writer-key"}
+    assert calls[1][1] == {"Authorization": "Bearer admin-key"}
+    assert calls[2][1] == {"Authorization": "Bearer admin-key"}
+
+
+def test_admin_only_client_fails_early_when_admin_key_missing(monkeypatch) -> None:
+    def unexpected_request(*args, **kwargs):
+        pytest.fail("request should not be sent without an admin credential")
+    monkeypatch.setattr(httpx, "request", unexpected_request)
+    client = ApiClient(api_key="writer-key")
+    with pytest.raises(ApiAuthorizationError, match="EAKTP_ADMIN_UI_API_KEY"):
+        client.list_evaluations()
 
 
 @pytest.mark.parametrize(

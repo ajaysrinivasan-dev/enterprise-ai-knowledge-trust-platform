@@ -10,11 +10,19 @@ from frontend.api_client import (
     ApiClientError,
     ApiConnectionError,
 )
-from frontend.auth import FrontendCredentialError, resolve_frontend_api_key
+from frontend.auth import (
+    FrontendCredentialError,
+    resolve_frontend_admin_api_key,
+    resolve_frontend_api_key,
+)
 
 settings = get_settings()
 try:
-    client = ApiClient(api_key=resolve_frontend_api_key(settings))
+    client = ApiClient(
+        api_key=resolve_frontend_api_key(settings),
+        admin_api_key=resolve_frontend_admin_api_key(settings),
+    )
+    credential_error = ""
 except FrontendCredentialError as exc:
     client = None
     credential_error = str(exc)

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     read_api_key: SecretStr | None = None
     write_api_key: SecretStr | None = None
     ui_api_key: SecretStr | None = None
+    # Optional separate credential for administrator-only dashboard actions.
+    admin_ui_api_key: SecretStr | None = None
     api_principals_json: SecretStr | None = None
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8000, ge=1, le=65535)
